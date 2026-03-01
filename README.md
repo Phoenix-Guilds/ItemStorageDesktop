@@ -1,7 +1,27 @@
-# Tauri + Vanilla
+# ItemStorage Manager
 
-This template should help get you started developing with Tauri in vanilla HTML, CSS and Javascript.
+Утилита для автоматической синхронизации базы данных аддона **ItemStorageBrowser** между игроками гильдии.
 
-## Recommended IDE Setup
+## Основные функции
+* **Режим Админа:** Автоматически сканирует логи аддона `CharacterStatusLogger` (он есть только у помощников по складу), определяет последнего активного персонажа (для будущих действий по созданию обновленного файла БД складского аддона) и выгружает актуальную базу данных (Lua) в GitHub репозиторий, если это необходимо.
+* **Режим Пользователя:** Проверяет наличие обновлений базы данных в облаке и автоматически скачивает свежую версию, если она новее локальной.
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## Системные требования
+* Windows 10/11
+* Установленный складской аддон `ItemStorageBrowser` для пользователей, и аддон `CharacterStatusLogger` - только для помощников по складу.
+
+## Использование
+1. При первом запуске укажите путь к папке с игрой.
+2. Для админов: введите GitHub Personal Access Token, присланный вам ГМом гильдии или другим помощником по складу.
+3. Программа будет работать в фоновом режиме, проверяя обновления каждые 15-30 минут.
+
+## Инструкция по установке
+1. Перейдите в раздел [Releases](https://github.com/Phoenix-Guilds/ItemStorageDesktop/releases).
+2. Скачайте последнюю версию:
+   * **ItemStorageManager_..._x64-setup.exe** — если хотите установить программу в систему.
+   * **ItemStorageManager_..._x64_en-US.msi** — стандартный установщик Windows.
+3. Запустите файл и следуйте инструкциям в открывшейся консоли.
+4. Если Windows выдаст предупреждение "SmartScreen", нажмите "Подробнее" -> "Выполнить в любом случае" (это нормально для программ без платного цифрового сертификата).
+
+---
+Разработано для гильдии **Phoenix Nest** (Sirus x5).
