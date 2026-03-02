@@ -3,7 +3,6 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, USER_AGENT};
 use serde_json::json;
 use sha1::{Digest, Sha1};
 
-// Вычисляет SHA-1 файла так же, как это делает GitHub (с префиксом blob)
 pub fn calculate_github_sha(content: &str) -> String {
     let mut hasher = Sha1::new();
     let header = format!("blob {}\0", content.len());
@@ -26,6 +25,32 @@ pub fn get_gh_headers(token: &str) -> HeaderMap {
     headers
 }
 
+// Новая функция: получаем время последнего коммита файла (в Unix timestamp)
+pub async fn get_remote_file_time(
+    token: &str,
+    path: &str,
+) -> Result<u64, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://api.github.com/repos/Phoenix-Guilds/ItemStorageBrowser/commits?path={}&sha=data&per_page=1",
+        path
+    );
+
+    let resp = client
+        .get(&url)
+        .headers(get_gh_headers(token))
+        .send()
+        .await?;
+    let commits: serde_json::Value = resp.json().await?;
+
+    let date_str = commits[0]["commit"]["committer"]["date"]
+        .as_str()
+        .ok_or("Не удалось получить дату коммита")?;
+
+    let datetime = chrono::DateTime::parse_from_rfc3339(date_str)?;
+    Ok(datetime.timestamp() as u64)
+}
+
 pub async fn upload_to_github(
     token: &str,
     file_content: &str,
@@ -38,7 +63,6 @@ pub async fn upload_to_github(
         path_in_repo
     );
 
-    // 1. Получаем текущие данные файла из GitHub (ветка data)
     let get_url = format!("{}?ref=data", url);
     let resp = client
         .get(&get_url)
@@ -50,16 +74,8 @@ pub async fn upload_to_github(
     if resp.status().is_success() {
         let json: serde_json::Value = resp.json().await?;
         remote_sha = json["sha"].as_str().unwrap_or("").to_string();
-
-        // СРАВНИВАЕМ: если SHA совпали, значит контент в репозитории идентичен локальному
-        let local_sha = calculate_github_sha(file_content);
-        if remote_sha == local_sha {
-            println!("[GITHUB] Файл в репозитории уже актуален. Пропускаем.");
-            return Ok(());
-        }
     }
 
-    // 2. Если SHA разные или файла нет — пушим
     let b64_content = general_purpose::STANDARD.encode(file_content);
     let mut body = json!({
         "message": message,
@@ -81,7 +97,6 @@ pub async fn upload_to_github(
         .await?;
 
     if put_resp.status().is_success() {
-        println!("[GITHUB] Обновление успешно завершено.");
         Ok(())
     } else {
         let err_json: serde_json::Value = put_resp.json().await?;
@@ -89,7 +104,6 @@ pub async fn upload_to_github(
     }
 }
 
-// Новая функция для скачивания (User Mode)
 pub async fn download_from_github(
     token: &str,
     path_in_repo: &str,
@@ -117,4 +131,25 @@ pub async fn download_from_github(
     } else {
         Err(format!("Ошибка скачивания: {}", resp.status()).into())
     }
+}
+
+pub async fn get_latest_release_version() -> Result<(String, String), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let url = "https://api.github.com/repos/Phoenix-Guilds/ItemStorageDesktop/releases/latest";
+
+    // Для публичных GET запросов к релизам токен обычно не обязателен,
+    // но USER_AGENT должен быть.
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static("ItemStorageBrowser-Manager"),
+    );
+
+    let resp = client.get(url).headers(headers).send().await?;
+    let json: serde_json::Value = resp.json().await?;
+
+    let tag = json["tag_name"].as_str().unwrap_or("v0.0.0").to_string();
+    let url = json["html_url"].as_str().unwrap_or("").to_string();
+
+    Ok((tag, url))
 }
