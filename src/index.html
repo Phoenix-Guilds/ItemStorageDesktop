@@ -1,39 +1,192 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="styles.css" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
-    <script type="module" src="/main.js" defer></script>
+    <title>ItemStorage Console</title>
+    <style>
+      /* Базовые стили */
+      html,
+      body {
+        background: #121212;
+        color: #d4d4d4;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        margin: 0;
+        padding: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      h3 {
+        margin: 15px;
+        color: #007acc;
+        font-weight: normal;
+        flex-shrink: 0;
+      }
+
+      #logs {
+        flex-grow: 1;
+        overflow-y: auto;
+        border: 1px solid #333;
+        margin: 0 15px 10px 15px;
+        padding: 10px;
+        background: #1e1e1e;
+        font-family: "Consolas", "Monaco", monospace;
+        font-size: 13px;
+        border-radius: 4px;
+        border-left: 3px solid #007acc;
+        line-height: 1.5;
+      }
+
+      /* Цветовая схема логов */
+      .log-success {
+        color: #4caf50;
+        font-weight: bold;
+      } /* Зеленый */
+      .log-error {
+        color: #f44336;
+      } /* Красный */
+      .log-info {
+        color: #4fc1ff;
+      } /* Голубой */
+      .log-warn {
+        color: #ce9178;
+      } /* Оранжево-коричневый */
+      .log-update {
+        color: #ff9800;
+        background: rgba(255, 152, 0, 0.1);
+        padding: 2px 4px;
+        border-radius: 2px;
+        display: block;
+        margin: 5px 0;
+      }
+
+      .setup-panel {
+        background: #252526;
+        padding: 15px;
+        margin: 0 15px 15px 15px;
+        border-radius: 8px;
+        border-top: 4px solid #007acc;
+        display: none;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        flex-shrink: 0;
+      }
+
+      input {
+        width: 100%;
+        padding: 10px;
+        margin: 8px 0;
+        background: #3c3c3c;
+        border: 1px solid #555;
+        color: white;
+        border-radius: 4px;
+        box-sizing: border-box;
+        outline: none;
+      }
+      input:focus {
+        border-color: #007acc;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      button {
+        background: #007acc;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        cursor: pointer;
+        border-radius: 4px;
+        font-weight: bold;
+        transition: background 0.2s;
+      }
+      button:hover {
+        background: #0062a3;
+      }
+
+      .info-text {
+        font-size: 12px;
+        color: #aaa;
+        margin-bottom: 5px;
+      }
+    </style>
   </head>
-
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
+    <h3>ItemStorage Manager Log</h3>
 
-      <div class="row">
-        <a href="https://tauri.app" target="_blank">
-          <img src="/assets/tauri.svg" class="logo tauri" alt="Tauri logo" />
-        </a>
-        <a
-          href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"
-          target="_blank"
-        >
-          <img
-            src="/assets/javascript.svg"
-            class="logo vanilla"
-            alt="JavaScript logo"
-          />
-        </a>
+    <div id="logs">Инициализация...</div>
+
+    <div id="setup-panel" class="setup-panel">
+      <h3 style="margin: 0 0 10px 0; font-size: 18px;">Настройка конфигурации</h3>
+      <div id="path-section">
+        <p class="info-text">Укажите путь к папке World of Warcraft:</p>
+        <input type="text" id="game-path" placeholder="Напр: C:\Games\World of Warcraft" />
       </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
+      <div id="token-section" style="display: none;">
+        <p class="info-text">Введите GitHub Token (для режима администратора):</p>
+        <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxx" />
+      </div>
+      <div class="actions">
+        <button onclick="saveSettings()">Сохранить</button>
+      </div>
+    </div>
 
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
-    </main>
+    <script>
+      const { listen } = window.__TAURI__.event;
+      const { invoke } = window.__TAURI__.core;
+      const logsDiv = document.getElementById("logs");
+      const setupPanel = document.getElementById("setup-panel");
+      const tokenSection = document.getElementById("token-section");
+      const pathSection = document.getElementById("path-section");
+
+      listen("log-event", (event) => {
+        const msg = event.payload;
+        if (!msg) return;
+
+        const line = document.createElement("div");
+        line.textContent = msg;
+
+        // Применение классов окраски
+        if (msg.includes("[SUCCESS]") || msg.includes("[OK]")) {
+          line.className = "log-success";
+        } else if (msg.includes("[ERROR]") || msg.includes("[!]") || msg.includes("[WARN]")) {
+          line.className = "log-error";
+        } else if (msg.includes("[INFO]") || msg.includes("[SYNC]")) {
+          line.className = "log-info";
+        } else if (msg.includes("[UPDATE]")) {
+          line.className = "log-update";
+        }
+
+        logsDiv.appendChild(line);
+        logsDiv.scrollTop = logsDiv.scrollHeight;
+
+        // Показ панелей настройки
+        if (msg.includes("[NEED_SETUP]")) {
+          setupPanel.style.display = "block";
+          pathSection.style.display = "block";
+        }
+        if (msg.includes("[NEED_SETUP_TOKEN]")) {
+          setupPanel.style.display = "block";
+          tokenSection.style.display = "block";
+        }
+      });
+
+      async function saveSettings() {
+        const path = document.getElementById("game-path").value;
+        const token = document.getElementById("gh-token").value;
+        try {
+          await invoke("update_settings", { path, token });
+          setupPanel.style.display = "none";
+          tokenSection.style.display = "none";
+          pathSection.style.display = "none";
+        } catch (e) {
+          alert("Ошибка: " + e);
+        }
+      }
+    </script>
   </body>
 </html>
