@@ -20,21 +20,49 @@ struct AppState {
     updated: Arc<Notify>,
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 async fn update_settings(
     path: String,
     token: String,
+    user_mode: bool,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut cfg: AppConfig = confy::load("item-storage-manager", None).unwrap_or_default();
+
+    // -------- проверка пути --------
+
     if !path.is_empty() {
-        cfg.game_path = path.trim().replace('"', "");
+        let cleaned = path.trim().replace('"', "");
+
+        if !config::is_valid_wow_path(&cleaned) {
+            return Err("INVALID_PATH".into());
+        }
+
+        cfg.game_path = cleaned;
     }
-    if !token.is_empty() {
-        cfg.github_token = token.trim().to_string();
+
+    // -------- пользовательский режим --------
+
+    if user_mode {
+        cfg.force_user_mode = true;
+        cfg.github_token.clear();
+    } else {
+        // токен проверяем ТОЛЬКО если он введён
+
+        if !token.trim().is_empty() {
+            if !github::validate_token(&token).await {
+                return Err("INVALID_TOKEN".into());
+            }
+
+            cfg.github_token = token.trim().to_string();
+            cfg.force_user_mode = false;
+        }
     }
+
     confy::store("item-storage-manager", None, &cfg).map_err(|e| e.to_string())?;
+
     state.updated.notify_one();
+
     Ok(())
 }
 

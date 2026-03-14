@@ -132,7 +132,8 @@ pub async fn perform_sync<R: Runtime>(
                 handle,
                 "[SUCCESS] Локальная база успешно обновлена.".to_string(),
             );
-        } else if local_time > remote_time && is_admin_mode(&cfg.game_path) {
+        } else if local_time > remote_time && is_admin_mode(&cfg.game_path) && !cfg.force_user_mode
+        {
             log_to_window(
                 handle,
                 "[SYNC] Локальная база новее. Отправка...".to_string(),
@@ -168,12 +169,15 @@ pub fn start_sync_loop(handle: tauri::AppHandle, state_notifier: Arc<Notify>) {
                 continue;
             }
 
-            if is_admin_mode(&cfg.game_path) && cfg.github_token.is_empty() {
+            if is_admin_mode(&cfg.game_path) && !cfg.force_user_mode && cfg.github_token.is_empty()
+            {
                 log_to_window(
                     &handle,
                     "[!] [NEED_SETUP_TOKEN] Режим админа требует GitHub Token.".to_string(),
                 );
+
                 let _ = handle.get_webview_window("main").map(|w| w.show());
+
                 state_notifier.notified().await;
                 continue;
             }
@@ -182,7 +186,7 @@ pub fn start_sync_loop(handle: tauri::AppHandle, state_notifier: Arc<Notify>) {
                 .join(r"Interface\AddOns\ItemStorageBrowser\ItemStorageDB.lua");
             let _ = perform_sync(&handle, &mut cfg, &db_path, true).await;
 
-            if is_admin_mode(&cfg.game_path) {
+            if is_admin_mode(&cfg.game_path) && !cfg.force_user_mode {
                 log_to_window(
                     &handle,
                     "[INFO] Запущена АДМИНСКАЯ сессия (активный мониторинг).".to_string(),
@@ -194,9 +198,25 @@ pub fn start_sync_loop(handle: tauri::AppHandle, state_notifier: Arc<Notify>) {
                 );
             }
 
+            if !cfg.github_token.is_empty() {
+                if !github::validate_token(&cfg.github_token).await {
+                    log_to_window(
+                        &handle,
+                        "[!] GitHub Token больше не действителен.".to_string(),
+                    );
+
+                    cfg.github_token.clear();
+                    let _ = confy::store("item-storage-manager", None, &cfg);
+
+                    let _ = handle.get_webview_window("main").map(|w| w.show());
+                    state_notifier.notified().await;
+                    continue;
+                }
+            }
+
             log_to_window(&handle, "[OK] Система запущена. Мониторинг...".to_string());
 
-            if is_admin_mode(&cfg.game_path) {
+            if is_admin_mode(&cfg.game_path) && !cfg.force_user_mode {
                 admin::run_admin_loop(handle.clone(), &db_path).await;
             } else {
                 user::run_user_loop(handle.clone(), &db_path).await;

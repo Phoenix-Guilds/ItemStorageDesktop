@@ -13,16 +13,34 @@ pub fn calculate_github_sha(content: &str) -> String {
 
 pub fn get_gh_headers(token: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
+
     headers.insert(
         USER_AGENT,
         HeaderValue::from_static("ItemStorageBrowser-Manager"),
     );
+
     if !token.is_empty() {
         if let Ok(auth) = HeaderValue::from_str(&format!("token {}", token)) {
             headers.insert(AUTHORIZATION, auth);
         }
     }
+
     headers
+}
+
+pub async fn validate_token(token: &str) -> bool {
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get("https://api.github.com/user")
+        .headers(get_gh_headers(token))
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) => r.status().is_success(),
+        Err(_) => false,
+    }
 }
 
 // Новая функция: получаем время последнего коммита файла (в Unix timestamp)
