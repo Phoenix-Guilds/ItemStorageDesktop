@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <title>ItemStorage Console</title>
+
     <style>
-      /* Базовые стили */
       html,
       body {
         background: #121212;
@@ -39,20 +39,19 @@
         line-height: 1.5;
       }
 
-      /* Цветовая схема логов */
       .log-success {
         color: #4caf50;
         font-weight: bold;
-      } /* Зеленый */
+      }
       .log-error {
         color: #f44336;
-      } /* Красный */
+      }
       .log-info {
         color: #4fc1ff;
-      } /* Голубой */
+      }
       .log-warn {
         color: #ce9178;
-      } /* Оранжево-коричневый */
+      }
       .log-update {
         color: #ff9800;
         background: rgba(255, 152, 0, 0.1);
@@ -73,6 +72,16 @@
         flex-shrink: 0;
       }
 
+      .path-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .path-row input {
+        flex: 1;
+      }
+
       input {
         width: 100%;
         padding: 10px;
@@ -84,6 +93,7 @@
         box-sizing: border-box;
         outline: none;
       }
+
       input:focus {
         border-color: #007acc;
       }
@@ -104,6 +114,7 @@
         font-weight: bold;
         transition: background 0.2s;
       }
+
       button:hover {
         background: #0062a3;
       }
@@ -113,8 +124,15 @@
         color: #aaa;
         margin-bottom: 5px;
       }
+
+      .small {
+        padding: 8px 12px;
+        font-size: 13px;
+        background: #444;
+      }
     </style>
   </head>
+
   <body>
     <h3>ItemStorage Manager Log</h3>
 
@@ -122,14 +140,35 @@
 
     <div id="setup-panel" class="setup-panel">
       <h3 style="margin: 0 0 10px 0; font-size: 18px;">Настройка конфигурации</h3>
+
+      <div id="setup-error" style="color: #ff6b6b; margin-bottom: 10px;"></div>
+
       <div id="path-section">
         <p class="info-text">Укажите путь к папке World of Warcraft:</p>
-        <input type="text" id="game-path" placeholder="Напр: C:\Games\World of Warcraft" />
+
+        <div class="path-row">
+          <input type="text" id="game-path" placeholder="C:\Games\World of Warcraft" />
+
+          <button class="small" onclick="chooseFolder()">
+            Выбрать
+          </button>
+        </div>
       </div>
+
       <div id="token-section" style="display: none;">
-        <p class="info-text">Введите GitHub Token (для режима администратора):</p>
-        <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxx" />
+        <p class="info-text">
+          Введите GitHub Token (для режима администратора):
+        </p>
+
+        <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxx" />
+
+        <div style="margin-top: 8px;">
+          <button onclick="useUserMode()" style="background: #555;">
+            Использовать пользовательский режим
+          </button>
+        </div>
       </div>
+
       <div class="actions">
         <button onclick="saveSettings()">Сохранить</button>
       </div>
@@ -138,6 +177,7 @@
     <script>
       const { listen } = window.__TAURI__.event;
       const { invoke } = window.__TAURI__.core;
+
       const logsDiv = document.getElementById("logs");
       const setupPanel = document.getElementById("setup-panel");
       const tokenSection = document.getElementById("token-section");
@@ -150,10 +190,9 @@
         const line = document.createElement("div");
         line.textContent = msg;
 
-        // Применение классов окраски
         if (msg.includes("[SUCCESS]") || msg.includes("[OK]")) {
           line.className = "log-success";
-        } else if (msg.includes("[ERROR]") || msg.includes("[!]") || msg.includes("[WARN]")) {
+        } else if (msg.includes("[ERROR]") || msg.includes("[WARN]") || msg.includes("[!]")) {
           line.className = "log-error";
         } else if (msg.includes("[INFO]") || msg.includes("[SYNC]")) {
           line.className = "log-info";
@@ -164,28 +203,92 @@
         logsDiv.appendChild(line);
         logsDiv.scrollTop = logsDiv.scrollHeight;
 
-        // Показ панелей настройки
         if (msg.includes("[NEED_SETUP]")) {
           setupPanel.style.display = "block";
           pathSection.style.display = "block";
+          tokenSection.style.display = "none";
         }
+
         if (msg.includes("[NEED_SETUP_TOKEN]")) {
           setupPanel.style.display = "block";
           tokenSection.style.display = "block";
+          pathSection.style.display = "none";
         }
       });
+
+      // Функция для открытия диалога теперь берется из плагина корректно
+      async function chooseFolder() {
+        try {
+          // В Tauri 2.0 команда требует обертки в ключ "options"
+          const selected = await window.__TAURI__.core.invoke("plugin:dialog|open", {
+            options: {
+              title: "Выберите папку World of Warcraft",
+              directory: true,
+              multiple: false,
+            },
+          });
+
+          if (selected) {
+            // selected вернет строку с путем или null, если выбор отменен
+            document.getElementById("game-path").value = selected;
+          }
+        } catch (e) {
+          console.error("Ошибка при выборе папки:", e);
+          alert("Не удалось открыть диалог: " + e);
+        }
+      }
 
       async function saveSettings() {
         const path = document.getElementById("game-path").value;
         const token = document.getElementById("gh-token").value;
+
         try {
-          await invoke("update_settings", { path, token });
+          await invoke("update_settings", {
+            path,
+            token,
+            userMode: false,
+          });
+
           setupPanel.style.display = "none";
-          tokenSection.style.display = "none";
-          pathSection.style.display = "none";
+          document.getElementById("setup-error").textContent = "";
         } catch (e) {
-          alert("Ошибка: " + e);
+          showError(e);
         }
+      }
+
+      async function useUserMode() {
+        const path = document.getElementById("game-path").value;
+
+        try {
+          await invoke("update_settings", {
+            path,
+            token: "",
+            userMode: true,
+          });
+
+          setupPanel.style.display = "none";
+          document.getElementById("setup-error").textContent = "";
+        } catch (e) {
+          showError(e);
+        }
+      }
+
+      function showError(e) {
+        const errorBox = document.getElementById("setup-error");
+
+        if (e === "INVALID_PATH") {
+          errorBox.textContent = "❌ Неверный путь к папке WoW";
+          return;
+        }
+
+        if (e === "INVALID_TOKEN") {
+          errorBox.textContent = "❌ GitHub Token недействителен";
+          tokenSection.style.display = "block";
+          pathSection.style.display = "none";
+          return;
+        }
+
+        errorBox.textContent = "Ошибка: " + e;
       }
     </script>
   </body>

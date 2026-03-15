@@ -4,7 +4,7 @@ mod config;
 mod github;
 mod modes;
 mod scanner;
-mod sync; // Добавили эту строку
+mod sync;
 
 use crate::config::AppConfig;
 use std::sync::Arc;
@@ -29,8 +29,6 @@ async fn update_settings(
 ) -> Result<(), String> {
     let mut cfg: AppConfig = confy::load("item-storage-manager", None).unwrap_or_default();
 
-    // -------- проверка пути --------
-
     if !path.is_empty() {
         let cleaned = path.trim().replace('"', "");
 
@@ -41,14 +39,10 @@ async fn update_settings(
         cfg.game_path = cleaned;
     }
 
-    // -------- пользовательский режим --------
-
     if user_mode {
         cfg.force_user_mode = true;
         cfg.github_token.clear();
     } else {
-        // токен проверяем ТОЛЬКО если он введён
-
         if !token.trim().is_empty() {
             if !github::validate_token(&token).await {
                 return Err("INVALID_TOKEN".into());
@@ -72,6 +66,7 @@ pub fn log_to_window<R: Runtime>(handle: &tauri::AppHandle<R>, msg: String) {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             updated: Arc::new(Notify::new()),
         })
@@ -90,6 +85,7 @@ fn main() {
 
             let quit_i = MenuItem::with_id(handle, "quit", "Выход", true, None::<&str>)?;
             let show_i = MenuItem::with_id(handle, "show", "Показать/Скрыть", true, None::<&str>)?;
+
             let menu = Menu::with_items(handle, &[&show_i, &quit_i])?;
 
             let _tray = TrayIconBuilder::new()
@@ -97,6 +93,7 @@ fn main() {
                 .menu(&menu)
                 .on_menu_event(move |h, event| match event.id.as_ref() {
                     "quit" => std::process::exit(0),
+
                     "show" => {
                         if let Some(w) = h.get_webview_window("main") {
                             if w.is_visible().unwrap_or(false) {
@@ -107,6 +104,7 @@ fn main() {
                             }
                         }
                     }
+
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -117,6 +115,7 @@ fn main() {
                     } = event
                     {
                         let h = tray.app_handle();
+
                         if let Some(w) = h.get_webview_window("main") {
                             if w.is_visible().unwrap_or(false) {
                                 let _ = w.hide();
@@ -130,6 +129,7 @@ fn main() {
                 .build(app)?;
 
             sync::start_sync_loop(handle.clone(), notifier);
+
             Ok(())
         })
         .run(tauri::generate_context!())
