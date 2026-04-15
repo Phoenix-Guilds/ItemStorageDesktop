@@ -132,20 +132,21 @@ pub async fn download_from_github(
         path_in_repo
     );
 
-    let resp = client
-        .get(&url)
-        .headers(get_gh_headers(token))
-        .send()
-        .await?;
+    let mut headers = get_gh_headers(token);
+    // Добавляем специальный заголовок для получения "сырых" данных
+    headers.insert(
+        reqwest::header::ACCEPT,
+        HeaderValue::from_static("application/vnd.github.v3.raw"),
+    );
+
+    let resp = client.get(&url).headers(headers).send().await?;
 
     if resp.status().is_success() {
-        let json: serde_json::Value = resp.json().await?;
-        let encoded_content = json["content"]
-            .as_str()
-            .ok_or("No content")?
-            .replace("\n", "");
-        let decoded_bytes = general_purpose::STANDARD.decode(encoded_content)?;
-        Ok(String::from_utf8(decoded_bytes)?)
+        let content = resp.text().await?;
+        if content.is_empty() {
+            return Err("Скачанный файл пуст (0 байт)".into());
+        }
+        Ok(content)
     } else {
         Err(format!("Ошибка скачивания: {}", resp.status()).into())
     }
