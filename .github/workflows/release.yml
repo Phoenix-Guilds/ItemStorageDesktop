@@ -6,6 +6,8 @@ on:
 
 jobs:
   release:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -36,5 +38,6 @@ jobs:
           # Маска подхватит MSI файл из папки билда
           files: |
             src-tauri/target/release/bundle/msi/*.msi
+          body_path: CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

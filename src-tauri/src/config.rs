@@ -13,6 +13,13 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub first_run_sync_done: bool,
+
+    #[serde(default = "default_autostart")]
+    pub autostart_enabled: bool,
+}
+
+fn default_autostart() -> bool {
+    true
 }
 
 impl Default for AppConfig {
@@ -24,6 +31,7 @@ impl Default for AppConfig {
             last_char_name: String::from(""),
             last_char_logout: String::from(""),
             first_run_sync_done: false,
+            autostart_enabled: true,
         }
     }
 }

@@ -20,6 +20,15 @@ struct AppState {
     updated: Arc<Notify>,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsView {
+    game_path: String,
+    github_token: String,
+    force_user_mode: bool,
+    autostart_enabled: bool,
+}
+
 #[tauri::command(rename_all = "camelCase")]
 async fn update_settings(
     path: String,
@@ -60,17 +69,49 @@ async fn update_settings(
     Ok(())
 }
 
+#[tauri::command]
+fn get_autostart_preference() -> bool {
+    confy::load::<AppConfig>("item-storage-manager", None)
+        .unwrap_or_default()
+        .autostart_enabled
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_settings() -> SettingsView {
+    let cfg: AppConfig = confy::load("item-storage-manager", None).unwrap_or_default();
+    SettingsView {
+        game_path: cfg.game_path,
+        github_token: cfg.github_token,
+        force_user_mode: cfg.force_user_mode,
+        autostart_enabled: cfg.autostart_enabled,
+    }
+}
+
+#[tauri::command]
+fn set_autostart_preference(enabled: bool) -> Result<(), String> {
+    let mut cfg: AppConfig = confy::load("item-storage-manager", None).unwrap_or_default();
+    cfg.autostart_enabled = enabled;
+    confy::store("item-storage-manager", None, &cfg).map_err(|e| e.to_string())
+}
+
 pub fn log_to_window<R: Runtime>(handle: &tauri::AppHandle<R>, msg: String) {
-    let _ = handle.emit("log-event", msg);
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let _ = handle.emit("log-event", format!("[{}] {}", timestamp, msg));
 }
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(AppState {
             updated: Arc::new(Notify::new()),
         })
-        .invoke_handler(tauri::generate_handler![update_settings])
+        .invoke_handler(tauri::generate_handler![
+            update_settings,
+            get_settings,
+            get_autostart_preference,
+            set_autostart_preference
+        ])
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.show();
@@ -80,6 +121,12 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let handle = app.handle();
+            if let Some(window) = handle.get_webview_window("main") {
+                window.set_title(&format!(
+                    "ItemStorageManager {}",
+                    env!("CARGO_PKG_VERSION")
+                ))?;
+            }
             let state = handle.state::<AppState>();
             let notifier = state.updated.clone();
 

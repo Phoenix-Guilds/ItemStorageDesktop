@@ -1,7 +1,7 @@
 {
   "name": "ItemStorageManager",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.12",
   "type": "module",
   "scripts": {
     "tauri": "tauri"
@@ -10,6 +10,7 @@
     "@tauri-apps/cli": "^2"
   },
   "dependencies": {
+    "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.6.0"
   }
 }

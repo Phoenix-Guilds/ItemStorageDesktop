@@ -19,10 +19,32 @@
       }
 
       h3 {
-        margin: 15px;
+        margin: 0;
         color: #007acc;
         font-weight: normal;
         flex-shrink: 0;
+      }
+
+      .app-header {
+        flex-shrink: 0;
+        padding: 15px 15px 10px;
+      }
+
+      .header-main {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .header-main h3 {
+        font-size: 18px;
+      }
+
+      .header-subtitle {
+        margin-top: 6px;
+        color: #aaa;
+        font-size: 13px;
       }
 
       #logs {
@@ -62,14 +84,24 @@
       }
 
       .setup-panel {
-        background: #252526;
+        background: rgba(37, 37, 38, 0.98);
         padding: 15px;
-        margin: 0 15px 15px 15px;
+        width: min(520px, calc(100% - 30px));
+        margin: 0;
         border-radius: 8px;
-        border-top: 4px solid #007acc;
-        display: none;
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-        flex-shrink: 0;
+        box-sizing: border-box;
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 15px;
+        background: rgba(0, 0, 0, 0.65);
       }
 
       .path-row {
@@ -130,15 +162,44 @@
         font-size: 13px;
         background: #444;
       }
+
+      .settings-button {
+        margin: 0;
+      }
+
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        color: #d4d4d4;
+        font-size: 13px;
+      }
+
+      .checkbox-row input {
+        width: auto;
+        margin: 0;
+      }
+
+      .modal-actions {
+        justify-content: flex-end;
+      }
     </style>
   </head>
 
   <body>
-    <h3>ItemStorage Manager Log</h3>
+    <header class="app-header">
+      <div class="header-main">
+        <h3>ItemStorageManager</h3>
+        <button class="small settings-button" onclick="openSettings()">Настройки</button>
+      </div>
+      <div class="header-subtitle">События и синхронизация</div>
+    </header>
 
     <div id="logs">Инициализация...</div>
 
-    <div id="setup-panel" class="setup-panel">
+    <div id="settings-modal" class="modal-backdrop">
+      <div id="setup-panel" class="setup-panel">
       <h3 style="margin: 0 0 10px 0; font-size: 18px;">Настройка конфигурации</h3>
 
       <div id="setup-error" style="color: #ff6b6b; margin-bottom: 10px;"></div>
@@ -169,8 +230,15 @@
         </div>
       </div>
 
+      <label class="checkbox-row">
+        <input type="checkbox" id="autostart-enabled" checked />
+        Запускать программу вместе с Windows
+      </label>
+
       <div class="actions">
+        <button class="small" onclick="closeSettings()">Закрыть</button>
         <button onclick="saveSettings()">Сохранить</button>
+      </div>
       </div>
     </div>
 
@@ -179,9 +247,52 @@
       const { invoke } = window.__TAURI__.core;
 
       const logsDiv = document.getElementById("logs");
-      const setupPanel = document.getElementById("setup-panel");
+      const settingsModal = document.getElementById("settings-modal");
       const tokenSection = document.getElementById("token-section");
       const pathSection = document.getElementById("path-section");
+      const autostartCheckbox = document.getElementById("autostart-enabled");
+
+      async function applyAutostart(enabled) {
+        await invoke("set_autostart_preference", { enabled });
+        await invoke(enabled ? "plugin:autostart|enable" : "plugin:autostart|disable");
+      }
+
+      async function initializeAutostart() {
+        try {
+          const enabled = await invoke("get_autostart_preference");
+          autostartCheckbox.checked = enabled;
+          await invoke(enabled ? "plugin:autostart|enable" : "plugin:autostart|disable");
+        } catch (e) {
+          console.error("Не удалось настроить автозапуск:", e);
+        }
+      }
+
+      async function openSettings() {
+        try {
+          const settings = await invoke("get_settings");
+          document.getElementById("game-path").value = settings.gamePath || "";
+          document.getElementById("gh-token").value = settings.githubToken || "";
+          autostartCheckbox.checked = settings.autostartEnabled;
+          pathSection.style.display = "block";
+          tokenSection.style.display = settings.forceUserMode ? "none" : "block";
+          settingsModal.style.display = "flex";
+        } catch (e) {
+          showError(e);
+        }
+      }
+
+      function closeSettings() {
+        settingsModal.style.display = "none";
+        document.getElementById("setup-error").textContent = "";
+      }
+
+      function showSetup() {
+        settingsModal.style.display = "flex";
+        pathSection.style.display = "block";
+        document.getElementById("setup-error").textContent = "";
+      }
+
+      initializeAutostart();
 
       listen("log-event", (event) => {
         const msg = event.payload;
@@ -204,13 +315,12 @@
         logsDiv.scrollTop = logsDiv.scrollHeight;
 
         if (msg.includes("[NEED_SETUP]")) {
-          setupPanel.style.display = "block";
-          pathSection.style.display = "block";
+          showSetup();
           tokenSection.style.display = "none";
         }
 
         if (msg.includes("[NEED_SETUP_TOKEN]")) {
-          setupPanel.style.display = "block";
+          showSetup();
           tokenSection.style.display = "block";
           pathSection.style.display = "none";
         }
@@ -248,8 +358,9 @@
             token,
             userMode: false,
           });
+          await applyAutostart(autostartCheckbox.checked);
 
-          setupPanel.style.display = "none";
+          closeSettings();
           document.getElementById("setup-error").textContent = "";
         } catch (e) {
           showError(e);
@@ -265,8 +376,9 @@
             token: "",
             userMode: true,
           });
+          await applyAutostart(autostartCheckbox.checked);
 
-          setupPanel.style.display = "none";
+          closeSettings();
           document.getElementById("setup-error").textContent = "";
         } catch (e) {
           showError(e);
