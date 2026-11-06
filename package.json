@@ -1,16 +1,24 @@
 {
   "name": "ItemStorageManager",
   "private": true,
-  "version": "0.1.12",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "dev": "vite --host 127.0.0.1 --port 1420",
+    "build": "vite build"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2",
+    "vite": "^8.3.5"
   },
   "dependencies": {
+    "@emoji-mart/data": "^1.2.1",
+    "@supabase/supabase-js": "^2.118.0",
     "@tauri-apps/plugin-autostart": "^2.5.1",
-    "@tauri-apps/plugin-dialog": "^2.6.0"
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "browser-image-compression": "^2.0.2",
+    "crypto-js": "^4.2.0",
+    "emoji-mart": "^5.6.0"
   }
 }

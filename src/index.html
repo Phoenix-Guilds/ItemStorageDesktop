@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <title>ItemStorage Console</title>
+    <link rel="stylesheet" href="https://phoenix-guilds.github.io/nest/assets/vendors/FontAwesome/css/all.min.css" />
+    <link rel="stylesheet" href="./chat.css" />
 
     <style>
       html,
@@ -25,33 +27,330 @@
         flex-shrink: 0;
       }
 
-      .app-header {
-        flex-shrink: 0;
-        padding: 15px 15px 10px;
+      .app-shell {
+        display: flex;
+        width: 100%;
+        height: 100%;
+        min-width: 0;
       }
 
-      .header-main {
+      .side-nav {
         display: flex;
+        flex: 0 0 208px;
+        flex-direction: column;
+        padding: 18px 10px 12px;
+        background: #121416;
+        border-right: 1px solid #333;
+      }
+
+      .nav-brand {
+        padding: 0 10px 22px;
+        color: #a9ffd0;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 1px;
+      }
+
+      .side-nav-list {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+
+      .nav-link {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px;
+        color: #c8cdd1;
+        text-align: left;
+        font-size: 13px;
+        font-weight: 500;
+        background: transparent;
+        border: 0;
+        border-radius: 6px;
+        box-shadow: none;
+      }
+
+      .nav-link:hover {
+        color: #fff;
+        background: #252a2e;
+      }
+
+      .nav-link[aria-current="page"] {
+        color: #a9ffd0;
+        background: #20332d;
+      }
+
+      .nav-icon {
+        width: 20px;
+        color: #0dcaf0;
+        text-align: center;
+        font-size: 16px;
+      }
+
+      .nav-spacer {
+        flex: 1;
+      }
+
+      .app-main {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .view-panel {
+        display: none;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        padding: 14px 16px 16px;
+      }
+
+      .view-panel.is-active {
+        display: flex;
+      }
+
+      .chat-view-heading {
+        display: flex;
+        flex-shrink: 0;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #333;
       }
 
-      .header-main h3 {
-        font-size: 18px;
+      .chat-view-heading h1,
+      .logs-view-heading h1 {
+        margin: 0;
+        color: #e4e8eb;
+        font-size: 17px;
+        font-weight: 600;
       }
 
-      .header-subtitle {
-        margin-top: 6px;
-        color: #aaa;
-        font-size: 13px;
+      .chat-history {
+        display: flex;
+        flex: 1;
+        align-items: center;
+        justify-content: center;
+        min-height: 0;
+        margin: 2px 0;
+        overflow: auto;
+        border: 1px solid #333;
+        border-radius: 8px;
+        background: #1a1d20;
+      }
+
+      .chat-history.is-ready {
+        overflow: hidden;
+      }
+
+      .scroll-bottom-button {
+        position: absolute;
+        z-index: 4;
+        right: 16px;
+        bottom: 14px;
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        padding: 0;
+        color: #09241a;
+        background: #a9ffd0;
+        border: 1px solid rgba(9, 36, 26, 0.2);
+        border-radius: 50%;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.38);
+        transition: opacity 0.15s ease, transform 0.15s ease;
+      }
+
+      .scroll-bottom-button:hover {
+        background: #8beabb;
+        transform: translateY(1px);
+      }
+
+      .scroll-bottom-button[hidden] {
+        display: none;
+      }
+
+      .logs-scroll-area {
+        position: relative;
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+
+      .chat-empty-state {
+        max-width: 330px;
+        padding: 24px;
+        color: #899399;
+        text-align: center;
+      }
+
+      .chat-empty-icon {
+        margin-bottom: 10px;
+        color: #0dcaf0;
+        font-size: 26px;
+      }
+
+      .chat-empty-state h2 {
+        margin: 0 0 7px;
+        color: #dce2e5;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .chat-empty-state p {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .chat-composer {
+        display: flex;
+        flex-shrink: 0;
+        align-items: flex-end;
+        gap: 7px;
+        padding: 9px;
+        border: 1px solid #3a4044;
+        border-radius: 8px;
+        background: #121416;
+      }
+
+      .chat-tool-button {
+        flex: 0 0 34px;
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        color: #c8cdd1;
+        background: #252a2e;
+        border: 1px solid #42494e;
+        border-radius: 6px;
+        box-shadow: none;
+      }
+
+      .chat-composer textarea {
+        flex: 1;
+        min-width: 0;
+        min-height: 34px;
+        max-height: 110px;
+        padding: 7px 10px;
+        resize: none;
+        color: #eee;
+        background: #1d2124;
+        border: 1px solid #42494e;
+        border-radius: 6px;
+        box-shadow: none;
+      }
+
+      .chat-composer textarea:disabled,
+      .chat-composer button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+
+      .logs-view-heading {
+        flex-shrink: 0;
+        padding-bottom: 12px;
+      }
+
+      .sidebar-footer {
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+        padding: 12px 8px 0;
+        border-top: 1px solid #333;
+      }
+
+      .sidebar-settings {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        width: 100%;
+        padding: 8px 9px;
+        color: #d4d4d4;
+        font-size: 12px;
+        text-align: left;
+        background: #252a2e;
+        border: 1px solid #42494e;
+        border-radius: 6px;
+        box-shadow: none;
+      }
+
+      .sidebar-settings:hover {
+        color: #a9ffd0;
+        background: #20332d;
+      }
+
+      .sidebar-settings i,
+      .sidebar-website i {
+        width: 16px;
+        color: #0dcaf0;
+        text-align: center;
+      }
+
+      .sidebar-version {
+        color: #899399;
+        font-size: 11px;
+      }
+
+      .sidebar-website {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #c8cdd1;
+        font-size: 12px;
+        text-decoration: none;
+      }
+
+      .sidebar-website:hover {
+        color: #a9ffd0;
+      }
+
+      .social-links {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 4px;
+      }
+
+      .social-links a {
+        display: inline-flex;
+        width: 30px;
+        height: 30px;
+        align-items: center;
+        justify-content: center;
+        color: #b7c0c5;
+        text-decoration: none;
+        border-radius: 5px;
+      }
+
+      .social-links a:hover {
+        color: #a9ffd0;
+        background: #252a2e;
+      }
+
+      .social-links i {
+        font-size: 16px;
+      }
+
+      .sidebar-copyright {
+        color: #717a80;
+        font-size: 9px;
+        line-height: 1.4;
       }
 
       #logs {
-        flex-grow: 1;
+        flex: 1;
+        min-height: 0;
+        height: 100%;
         overflow-y: auto;
         border: 1px solid #333;
-        margin: 0 15px 10px 15px;
+        margin: 0;
         padding: 10px;
         background: #1e1e1e;
         font-family: "Consolas", "Monaco", monospace;
@@ -59,6 +358,11 @@
         border-radius: 4px;
         border-left: 3px solid #007acc;
         line-height: 1.5;
+      }
+
+      .logs-scroll-button {
+        right: 20px;
+        bottom: 18px;
       }
 
       .log-success {
@@ -163,6 +467,10 @@
         background: #444;
       }
 
+      .window-geometry-reset {
+        margin-top: 12px;
+      }
+
       .settings-button {
         margin: 0;
       }
@@ -184,19 +492,209 @@
       .modal-actions {
         justify-content: flex-end;
       }
+
+      @media (max-width: 620px) {
+        .side-nav {
+          flex-basis: 58px;
+          align-items: center;
+          padding-right: 6px;
+          padding-left: 6px;
+        }
+
+        .nav-brand,
+        .nav-label,
+        .sidebar-version,
+        .sidebar-website,
+        .social-links,
+        .sidebar-copyright {
+          display: none;
+        }
+
+        .nav-link {
+          justify-content: center;
+          padding: 11px 6px;
+        }
+
+        .nav-icon {
+          width: auto;
+        }
+
+        .sidebar-footer {
+          width: 100%;
+          align-items: center;
+          padding: 8px 0 0;
+          border-top: 0;
+        }
+
+        .sidebar-settings {
+          justify-content: center;
+          padding: 9px 4px;
+        }
+
+        .sidebar-settings span {
+          display: none;
+        }
+
+        .view-panel {
+          padding-right: 11px;
+          padding-left: 11px;
+        }
+      }
     </style>
   </head>
 
   <body>
-    <header class="app-header">
-      <div class="header-main">
-        <h3>ItemStorageManager</h3>
-        <button class="small settings-button" onclick="openSettings()">Настройки</button>
-      </div>
-      <div class="header-subtitle">События и синхронизация</div>
-    </header>
+    <div class="app-shell">
+      <aside class="side-nav" aria-label="Разделы приложения">
+        <div class="nav-brand">PHOENIX NEST</div>
+        <nav class="side-nav-list">
+          <button class="nav-link" type="button" data-view="chat-view" aria-current="page" aria-label="Чат">
+            <span class="nav-icon" aria-hidden="true">◉</span>
+            <span class="nav-label">Чат</span>
+          </button>
+          <button class="nav-link" type="button" data-view="logs-view" aria-label="Логи">
+            <span class="nav-icon" aria-hidden="true">≡</span>
+            <span class="nav-label">Логи</span>
+          </button>
+        </nav>
+        <div class="nav-spacer"></div>
+        <footer class="sidebar-footer">
+          <button class="sidebar-settings" type="button" onclick="openSettings()">
+            <i class="fa-solid fa-gear" aria-hidden="true"></i>
+            <span>Настройки</span>
+          </button>
+          <div class="sidebar-version" id="app-version">Версия</div>
+          <a class="sidebar-website" href="https://phoenix-guilds.github.io/nest" target="_blank" rel="noreferrer">
+            <i class="fa-solid fa-globe" aria-hidden="true"></i>
+            <span>Сайт гильдии</span>
+          </a>
+          <nav class="social-links" aria-label="Социальные сети гильдии">
+            <a href="https://www.youtube.com/@PhoenixNestGuild" target="_blank" rel="noreferrer" title="YouTube" aria-label="YouTube"><i class="fa-brands fa-youtube" aria-hidden="true"></i></a>
+            <a href="https://www.twitch.tv/phoenixnestguild" target="_blank" rel="noreferrer" title="Twitch" aria-label="Twitch"><i class="fa-brands fa-twitch" aria-hidden="true"></i></a>
+            <a href="https://discord.gg/UyvwHtv4u5" target="_blank" rel="noreferrer" title="Discord" aria-label="Discord"><i class="fa-brands fa-discord" aria-hidden="true"></i></a>
+            <a href="https://t.me/+HnliAMRqO9A5ZGVi" target="_blank" rel="noreferrer" title="Telegram" aria-label="Telegram"><i class="fa-brands fa-telegram" aria-hidden="true"></i></a>
+            <a href="https://github.com/Phoenix-Guilds" target="_blank" rel="noreferrer" title="GitHub" aria-label="GitHub"><i class="fa-brands fa-github" aria-hidden="true"></i></a>
+          </nav>
+          <small class="sidebar-copyright">© 2024 Guild Phoenix Nest. All rights reserved.</small>
+        </footer>
+      </aside>
 
-    <div id="logs">Инициализация...</div>
+      <main class="app-main">
+        <section class="view-panel is-active" id="chat-view" aria-labelledby="chat-heading">
+          <div class="chat-view-heading">
+            <h1 id="chat-heading">Чат</h1>
+            <div class="chat-user-tools" id="chat-user-tools" hidden>
+              <img id="chat-user-avatar" class="chat-user-avatar" alt="" />
+              <span id="chat-user-name"></span>
+              <details class="chat-preferences">
+                <summary aria-label="Настройки чата" title="Настройки чата"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></summary>
+                <div class="chat-preferences-menu">
+                  <button type="button" data-mute="0">Включить звук</button>
+                  <button type="button" data-mute="5">Без звука на 5 минут</button>
+                  <button type="button" data-mute="15">Без звука на 15 минут</button>
+                  <button type="button" data-mute="30">Без звука на 30 минут</button>
+                  <button type="button" data-mute="60">Без звука на 1 час</button>
+                  <button type="button" data-mute="180">Без звука на 3 часа</button>
+                  <button type="button" data-mute="-1">Отключить звук навсегда</button>
+                  <button type="button" id="chat-change-avatar">Изменить аватар</button>
+                  <button type="button" id="chat-delete-account">Удалить аккаунт</button>
+                  <button type="button" id="chat-logout">Выйти</button>
+                </div>
+              </details>
+              <span class="chat-connection-status" id="chat-connection-status">Подключение...</span>
+            </div>
+          </div>
+          <div class="chat-history" id="chat-history">
+            <div class="chat-auth-gate" id="chat-auth-gate">
+              <div class="chat-auth-card">
+                <div class="chat-auth-mark"><i class="fa-regular fa-comments" aria-hidden="true"></i></div>
+                <h2 id="chat-auth-title">Вход в чат гильдии</h2>
+                <p class="chat-auth-description" id="chat-auth-description">Сначала подтвердите доступ общим паролем чата.</p>
+                <form id="chat-room-form">
+                  <label for="chat-room-password">Общий пароль чата</label>
+                  <input id="chat-room-password" type="password" autocomplete="current-password" required />
+                  <button class="chat-primary-button" type="submit" id="chat-room-submit">Продолжить</button>
+                </form>
+                <form id="chat-personal-form" hidden>
+                  <label for="chat-nickname">Личный логин</label>
+                  <input id="chat-nickname" autocomplete="username" maxlength="40" required />
+                  <label for="chat-personal-password">Личный пароль</label>
+                  <input id="chat-personal-password" type="password" autocomplete="current-password" required />
+                  <p class="chat-auth-hint">Если аккаунта с таким логином еще нет, он будет создан автоматически.</p>
+                  <button class="chat-primary-button" type="submit" id="chat-personal-submit">Войти</button>
+                  <button class="chat-secondary-button" type="button" id="chat-back-to-room">Назад</button>
+                </form>
+                <div class="chat-auth-error" id="chat-auth-error" role="alert" aria-live="polite"></div>
+              </div>
+            </div>
+            <div class="chat-messages" id="chat-messages" aria-live="polite" hidden></div>
+            <button class="scroll-bottom-button" id="chat-scroll-bottom" type="button" title="К последнему сообщению" aria-label="Прокрутить к последнему сообщению" hidden>
+              <i class="fa-solid fa-arrow-down" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div class="chat-reply-preview" id="chat-reply-preview" hidden>
+            <span id="chat-reply-label"></span>
+            <button type="button" id="chat-cancel-reply" aria-label="Отменить ответ"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+          </div>
+          <div class="chat-typing" id="chat-typing" aria-live="polite"></div>
+          <div class="chat-composer" id="chat-composer">
+            <button class="chat-tool-button" id="chat-emoji-button" type="button" disabled aria-label="Вставить эмодзи" title="Эмодзи"><i class="fa-regular fa-face-smile" aria-hidden="true"></i></button>
+            <div class="chat-emoji-menu" id="chat-emoji-menu" hidden></div>
+            <button class="chat-tool-button" id="chat-attach-button" type="button" disabled aria-label="Прикрепить изображение" title="Изображение"><i class="fa-solid fa-paperclip" aria-hidden="true"></i></button>
+            <input id="chat-file-input" type="file" accept="image/*" multiple hidden />
+            <textarea id="chat-message-input" rows="1" placeholder="Сообщение..." disabled aria-label="Текст сообщения"></textarea>
+            <button class="chat-send-button" id="chat-send-button" type="button" disabled aria-label="Отправить сообщение" title="Отправить"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i></button>
+          </div>
+          <div class="chat-attachment-previews" id="chat-attachment-previews"></div>
+        </section>
+
+        <div id="chat-reaction-picker-container" hidden></div>
+
+        <section class="view-panel" id="logs-view" aria-labelledby="logs-heading">
+          <div class="logs-view-heading">
+            <h1 id="logs-heading">События и синхронизация</h1>
+          </div>
+          <div class="logs-scroll-area">
+            <div id="logs" role="log" aria-live="polite">Инициализация...</div>
+            <button class="scroll-bottom-button logs-scroll-button" id="logs-scroll-bottom" type="button" title="К последним событиям" aria-label="Прокрутить к последним событиям" hidden>
+              <i class="fa-solid fa-arrow-down" aria-hidden="true"></i>
+            </button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="chat-profile-modal" id="chat-confirm-modal" hidden>
+      <section class="chat-profile-dialog chat-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="chat-confirm-title" aria-describedby="chat-confirm-message">
+        <h2 id="chat-confirm-title">Подтверждение</h2>
+        <p id="chat-confirm-message"></p>
+        <div class="chat-confirm-actions">
+          <button type="button" class="chat-secondary-button" id="chat-confirm-cancel">Отмена</button>
+          <button type="button" class="chat-danger-button" id="chat-confirm-accept">Удалить</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="chat-profile-modal" id="chat-profile-modal" hidden>
+      <section class="chat-profile-dialog" role="dialog" aria-modal="true" aria-labelledby="chat-profile-title">
+        <h2 id="chat-profile-title">Аватар профиля</h2>
+        <img id="chat-profile-preview" class="chat-profile-preview" alt="Предпросмотр аватара" />
+        <label for="chat-avatar-style">Стиль</label>
+        <select id="chat-avatar-style">
+          <option value="bottts">Роботы</option>
+          <option value="adventurer">Путешественники</option>
+          <option value="avataaars">Люди</option>
+          <option value="pixel-art">Пиксели</option>
+          <option value="lorelei">Иллюстрация</option>
+          <option value="identicon">Абстракция</option>
+        </select>
+        <button type="button" class="chat-secondary-button" id="chat-avatar-randomize">Другой вариант</button>
+        <div class="chat-profile-actions">
+          <button type="button" class="chat-secondary-button" id="chat-avatar-cancel">Отмена</button>
+          <button type="button" class="chat-primary-button" id="chat-avatar-save">Сохранить</button>
+        </div>
+      </section>
+    </div>
 
     <div id="settings-modal" class="modal-backdrop">
       <div id="setup-panel" class="setup-panel">
@@ -235,6 +733,15 @@
         Запускать программу вместе с Windows
       </label>
 
+      <label class="checkbox-row">
+        <input type="checkbox" id="close-to-tray" checked />
+        Скрывать окно в трей при нажатии на крестик
+      </label>
+
+      <button class="small window-geometry-reset" type="button" onclick="resetWindowGeometry()">
+        Сбросить размер и положение окна
+      </button>
+
       <div class="actions">
         <button class="small" onclick="closeSettings()">Закрыть</button>
         <button onclick="saveSettings()">Сохранить</button>
@@ -247,10 +754,48 @@
       const { invoke } = window.__TAURI__.core;
 
       const logsDiv = document.getElementById("logs");
+      const navButtons = document.querySelectorAll(".nav-link[data-view]");
+      const viewPanels = document.querySelectorAll(".view-panel");
       const settingsModal = document.getElementById("settings-modal");
       const tokenSection = document.getElementById("token-section");
       const pathSection = document.getElementById("path-section");
       const autostartCheckbox = document.getElementById("autostart-enabled");
+      const logsScrollButton = document.getElementById("logs-scroll-bottom");
+      let logsScrollButtonVisible = false;
+
+      function updateLogsScrollButton() {
+        const remaining = logsDiv.scrollHeight - logsDiv.scrollTop - logsDiv.clientHeight;
+        if (!logsScrollButtonVisible && remaining >= 600) {
+          logsScrollButtonVisible = true;
+          logsScrollButton.hidden = false;
+        } else if (logsScrollButtonVisible && remaining <= 200) {
+          logsScrollButtonVisible = false;
+          logsScrollButton.hidden = true;
+        }
+      }
+
+      logsDiv.addEventListener("scroll", updateLogsScrollButton, { passive: true });
+      logsScrollButton.addEventListener("click", () => {
+        logsDiv.scrollTo({ top: logsDiv.scrollHeight, behavior: "smooth" });
+      });
+
+      navButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const targetId = button.dataset.view;
+          viewPanels.forEach((panel) => {
+            panel.classList.toggle("is-active", panel.id === targetId);
+          });
+          navButtons.forEach((item) => item.removeAttribute("aria-current"));
+          button.setAttribute("aria-current", "page");
+          updateLogsScrollButton();
+        });
+      });
+
+      invoke("get_app_version")
+        .then((version) => {
+          document.getElementById("app-version").textContent = `Версия ${version}`;
+        })
+        .catch((error) => console.error("Не удалось получить версию:", error));
 
       async function applyAutostart(enabled) {
         await invoke("set_autostart_preference", { enabled });
@@ -273,6 +818,7 @@
           document.getElementById("game-path").value = settings.gamePath || "";
           document.getElementById("gh-token").value = settings.githubToken || "";
           autostartCheckbox.checked = settings.autostartEnabled;
+          document.getElementById("close-to-tray").checked = settings.closeToTray;
           pathSection.style.display = "block";
           tokenSection.style.display = settings.forceUserMode ? "none" : "block";
           settingsModal.style.display = "flex";
@@ -286,6 +832,14 @@
         document.getElementById("setup-error").textContent = "";
       }
 
+      async function resetWindowGeometry() {
+        try {
+          await invoke("reset_window_geometry");
+        } catch (e) {
+          showError(e);
+        }
+      }
+
       function showSetup() {
         settingsModal.style.display = "flex";
         pathSection.style.display = "block";
@@ -294,12 +848,17 @@
 
       initializeAutostart();
 
+      listen("open-settings", () => {
+        openSettings();
+      });
+
       listen("log-event", (event) => {
         const msg = event.payload;
         if (!msg) return;
 
         const line = document.createElement("div");
         line.textContent = msg;
+        const wasNearBottom = logsDiv.scrollHeight - logsDiv.scrollTop - logsDiv.clientHeight < 40;
 
         if (msg.includes("[SUCCESS]") || msg.includes("[OK]")) {
           line.className = "log-success";
@@ -312,7 +871,8 @@
         }
 
         logsDiv.appendChild(line);
-        logsDiv.scrollTop = logsDiv.scrollHeight;
+        if (wasNearBottom) logsDiv.scrollTop = logsDiv.scrollHeight;
+        updateLogsScrollButton();
 
         if (msg.includes("[NEED_SETUP]")) {
           showSetup();
@@ -351,12 +911,14 @@
       async function saveSettings() {
         const path = document.getElementById("game-path").value;
         const token = document.getElementById("gh-token").value;
+        const closeToTray = document.getElementById("close-to-tray").checked;
 
         try {
           await invoke("update_settings", {
             path,
             token,
             userMode: false,
+            closeToTray,
           });
           await applyAutostart(autostartCheckbox.checked);
 
@@ -369,12 +931,14 @@
 
       async function useUserMode() {
         const path = document.getElementById("game-path").value;
+        const closeToTray = document.getElementById("close-to-tray").checked;
 
         try {
           await invoke("update_settings", {
             path,
             token: "",
             userMode: true,
+            closeToTray,
           });
           await applyAutostart(autostartCheckbox.checked);
 
@@ -403,5 +967,6 @@
         errorBox.textContent = "Ошибка: " + e;
       }
     </script>
+    <script type="module" src="./chat.js"></script>
   </body>
 </html>
