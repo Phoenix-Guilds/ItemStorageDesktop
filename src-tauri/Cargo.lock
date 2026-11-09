@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "ItemStorageManager"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "base64 0.21.7",
  "chrono",

@@ -233,24 +233,31 @@
         box-shadow: none;
       }
 
-      .chat-composer textarea {
+      .chat-composer #chat-message-input {
         flex: 1;
         min-width: 0;
         min-height: 34px;
-        max-height: 110px;
+        max-height: 160px;
         padding: 7px 10px;
-        resize: none;
+        overflow-y: auto;
         color: #eee;
         background: #1d2124;
         border: 1px solid #42494e;
         border-radius: 6px;
         box-shadow: none;
+        outline: none;
       }
 
-      .chat-composer textarea:disabled,
+      .chat-composer #chat-message-input[contenteditable="false"],
       .chat-composer button:disabled {
         cursor: not-allowed;
         opacity: 0.5;
+      }
+
+      .chat-composer #chat-message-input:empty::before {
+        color: #858f95;
+        content: attr(data-placeholder);
+        pointer-events: none;
       }
 
       .logs-view-heading {
@@ -586,9 +593,30 @@
             <div class="chat-user-tools" id="chat-user-tools" hidden>
               <img id="chat-user-avatar" class="chat-user-avatar" alt="" />
               <span id="chat-user-name"></span>
+              <button id="chat-users-toggle" class="chat-users-toggle" type="button" aria-controls="chat-users-panel" aria-expanded="false" hidden>
+                <i class="fa-solid fa-users" aria-hidden="true"></i>
+                <span>Пользователи</span>
+                <span id="chat-users-toggle-count" class="chat-users-toggle-count">0 · 0</span>
+              </button>
               <details class="chat-preferences">
                 <summary aria-label="Настройки чата" title="Настройки чата"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></summary>
                 <div class="chat-preferences-menu">
+                  <fieldset class="chat-sound-settings">
+                    <legend>Звук нового сообщения</legend>
+                    <label for="chat-sound-preset">Звуковой пресет</label>
+                    <select id="chat-sound-preset">
+                      <option value="Default">По умолчанию</option>
+                      <option value="ICQ">ICQ</option>
+                      <option value="Skype">Skype</option>
+                      <option value="Custom">Свой звук</option>
+                    </select>
+                    <label class="chat-sound-file-label" for="chat-sound-file">Выбрать MP3</label>
+                    <input id="chat-sound-file" type="file" accept=".mp3,audio/mpeg" hidden />
+                    <span id="chat-sound-file-name" class="chat-sound-file-name">Файл не выбран</span>
+                    <label for="chat-sound-volume">Громкость <span id="chat-sound-volume-value">70%</span></label>
+                    <input id="chat-sound-volume" type="range" min="0" max="100" value="70" />
+                    <button type="button" id="chat-sound-preview">Прослушать</button>
+                  </fieldset>
                   <button type="button" data-mute="0">Включить звук</button>
                   <button type="button" data-mute="5">Без звука на 5 минут</button>
                   <button type="button" data-mute="15">Без звука на 15 минут</button>
@@ -604,7 +632,9 @@
               <span class="chat-connection-status" id="chat-connection-status">Подключение...</span>
             </div>
           </div>
-          <div class="chat-history" id="chat-history">
+          <div class="chat-content-layout" id="chat-content-layout">
+            <div class="chat-main-column">
+              <div class="chat-history" id="chat-history">
             <div class="chat-auth-gate" id="chat-auth-gate">
               <div class="chat-auth-card">
                 <div class="chat-auth-mark"><i class="fa-regular fa-comments" aria-hidden="true"></i></div>
@@ -642,10 +672,24 @@
             <div class="chat-emoji-menu" id="chat-emoji-menu" hidden></div>
             <button class="chat-tool-button" id="chat-attach-button" type="button" disabled aria-label="Прикрепить изображение" title="Изображение"><i class="fa-solid fa-paperclip" aria-hidden="true"></i></button>
             <input id="chat-file-input" type="file" accept="image/*" multiple hidden />
-            <textarea id="chat-message-input" rows="1" placeholder="Сообщение..." disabled aria-label="Текст сообщения"></textarea>
+            <div id="chat-message-input" contenteditable="false" role="textbox" aria-multiline="true" aria-disabled="true" data-placeholder="Сообщение..." spellcheck="true" tabindex="0" aria-label="Текст сообщения"></div>
             <button class="chat-send-button" id="chat-send-button" type="button" disabled aria-label="Отправить сообщение" title="Отправить"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i></button>
           </div>
           <div class="chat-attachment-previews" id="chat-attachment-previews"></div>
+            </div>
+            <div id="chat-users-resizer" class="chat-users-resizer" role="separator" aria-orientation="vertical" aria-label="Изменить ширину списка пользователей" tabindex="0"></div>
+            <aside id="chat-users-panel" class="chat-users-panel" aria-labelledby="chat-users-heading" hidden>
+              <div class="chat-users-panel-heading">
+                <h2 id="chat-users-heading">Пользователи</h2>
+                <button id="chat-users-close" class="chat-users-close" type="button" aria-label="Закрыть список пользователей"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+              </div>
+              <div id="chat-users-count" class="chat-users-count" aria-live="polite">Всего: 0 · онлайн: 0</div>
+              <input id="chat-users-search" class="chat-users-search" type="search" placeholder="Поиск по имени..." aria-label="Поиск по имени пользователя" />
+              <div id="chat-users-list" class="chat-users-list" role="list" aria-label="Зарегистрированные пользователи">
+                <div class="chat-users-empty">Загрузка списка...</div>
+              </div>
+            </aside>
+          </div>
         </section>
 
         <div id="chat-reaction-picker-container" hidden></div>

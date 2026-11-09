@@ -1,12 +1,64 @@
 import { createClient } from "@supabase/supabase-js";
 import CryptoJS from "crypto-js";
 import imageCompression from "browser-image-compression";
+import kolobokLicenseUrl from "./assets/kolobok/Copyright_en.txt?url";
 import {
   CHAT_SESSION_EXPIRY_MS,
   CHAT_SESSION_KEY,
   SUPABASE_ANON_KEY,
   SUPABASE_URL,
 } from "./chat-config.js";
+
+const SOUND_SETTINGS_KEY = "chat_sound_settings";
+const SOUND_DB_NAME = "item-storage-chat-sounds";
+const SOUND_DB_STORE = "sounds";
+const soundPresetAssets = import.meta.glob("./assets/sounds/*/incoming_chat_message.mp3", {
+  eager: true,
+  query: "?url",
+  import: "default",
+});
+const soundPresets = [...new Set([
+  "Default",
+  "ICQ",
+  "Skype",
+  ...Object.keys(soundPresetAssets)
+    .map((path) => path.match(/^\.\/assets\/sounds\/([^/]+)\/incoming_chat_message\.mp3$/)?.[1])
+    .filter((name) => name && name !== "Custom"),
+])].sort((left, right) => {
+  if (left === "Default") return -1;
+  if (right === "Default") return 1;
+  return left.localeCompare(right);
+});
+const kolobokAssets = import.meta.glob("./assets/kolobok/**/*.gif", {
+  eager: true,
+  query: "?url",
+  import: "default",
+});
+const kolobokCategoryLabels = {
+  he_and_she: "Он и она",
+  madhouse: "Палата №6",
+  other: "Другие",
+  personal: "Персональные",
+  remake: "Ремейки",
+  rpg: "RPG",
+  sport: "Спорт",
+  standart: "Стандартные",
+};
+const kolobokSmiles = Object.entries(kolobokAssets).map(([path, url]) => {
+  const match = path.match(/^\.\/assets\/kolobok\/([^/]+)\/([^/]+)\.gif$/);
+  if (!match) return null;
+  const [, category, name] = match;
+  return {
+    category,
+    name,
+    title: name.replace(/[_-]+/g, " "),
+    url,
+    token: `[[kolobok:${category}/${name}]]`,
+  };
+}).filter(Boolean).sort((left, right) =>
+  (kolobokCategoryLabels[left.category] || left.category).localeCompare(kolobokCategoryLabels[right.category] || right.category)
+    || left.name.localeCompare(right.name));
+const kolobokByToken = new Map(kolobokSmiles.map((smile) => [smile.token, smile]));
 
 const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const byId = (id) => document.getElementById(id);
@@ -47,6 +99,10 @@ let realtimeStatusLogged = false;
 let shouldStickToLatest = true;
 let messageSizeObserver = null;
 let chatScrollButtonVisible = false;
+let composerSavedRange = null;
+let chatUsers = [];
+let onlineUserIds = new Set();
+let chatUsersLoadError = false;
 
 function logChat(message) {
   const invoke = window.__TAURI__?.core?.invoke;
@@ -116,6 +172,112 @@ function updateUnreadIndicator(unread) {
 
 function clearUnreadIfAtLatest() {
   if (isChatAtLatest()) updateUnreadIndicator(false);
+}
+
+function renderChatUsers() {
+  const list = byId("chat-users-list");
+  if (!list) return;
+
+  const onlineCount = chatUsers.reduce((count, user) => count + (onlineUserIds.has(String(user.id)) ? 1 : 0), 0);
+  byId("chat-users-count").textContent = `Всего: ${chatUsers.length} · онлайн: ${onlineCount}`;
+  byId("chat-users-toggle-count").textContent = `${onlineCount} / ${chatUsers.length}`;
+
+  if (chatUsersLoadError) {
+    list.replaceChildren();
+    const error = document.createElement("div");
+    error.className = "chat-users-empty";
+    error.textContent = "Не удалось загрузить список пользователей.";
+    list.append(error);
+    return;
+  }
+
+  const query = byId("chat-users-search").value.trim().toLocaleLowerCase("ru-RU");
+  const filtered = chatUsers
+    .filter((user) => !query || user.username.toLocaleLowerCase("ru-RU").includes(query))
+    .sort((left, right) => {
+      const onlineDifference = Number(onlineUserIds.has(String(right.id))) - Number(onlineUserIds.has(String(left.id)));
+      return onlineDifference || left.username.localeCompare(right.username, "ru", { sensitivity: "base" });
+    });
+
+  list.replaceChildren();
+  if (!filtered.length) {
+    const empty = document.createElement("div");
+    empty.className = "chat-users-empty";
+    empty.textContent = query ? "Пользователи не найдены." : "Пока нет зарегистрированных пользователей.";
+    list.append(empty);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  filtered.forEach((user) => {
+    const isOnline = onlineUserIds.has(String(user.id));
+    const row = document.createElement("div");
+    row.className = "chat-user-row";
+    row.setAttribute("role", "listitem");
+    row.classList.toggle("is-banned", Boolean(user.is_banned));
+
+    const avatar = document.createElement("img");
+    avatar.className = "chat-user-list-avatar";
+    avatar.alt = "";
+    const fallbackAvatar = makeAvatarUrl(user.username);
+    avatar.src = safeMediaUrl(user.avatar_url) || fallbackAvatar;
+    avatar.addEventListener("error", () => {
+      avatar.onerror = null;
+      avatar.src = fallbackAvatar;
+    }, { once: true });
+
+    const details = document.createElement("span");
+    details.className = "chat-user-row-details";
+    const name = document.createElement("span");
+    name.className = `chat-user-row-name ${isOnline ? "is-online" : "is-offline"}`;
+    name.textContent = user.username;
+    const status = document.createElement("span");
+    status.className = "chat-user-row-status";
+    status.classList.toggle("is-online", isOnline);
+    status.textContent = user.is_banned ? "Заблокирован" : isOnline ? "Онлайн" : "Не в сети";
+    details.append(name, status);
+    row.append(avatar, details);
+    fragment.append(row);
+  });
+  list.append(fragment);
+}
+
+async function loadChatUsers() {
+  chatUsersLoadError = false;
+  byId("chat-users-list").innerHTML = '<div class="chat-users-empty">Загружаю список...</div>';
+  try {
+    const { data, error } = await client
+      .from("profiles")
+      .select("id, username, avatar_url, is_banned")
+      .order("username", { ascending: true });
+    if (error) throw error;
+    chatUsers = (data || []).map((user) => ({
+      ...user,
+      id: String(user.id),
+      username: String(user.username || "Участник"),
+    }));
+    if (currentUser && !chatUsers.some((user) => user.id === String(currentUser.id))) {
+      chatUsers.push({
+        id: String(currentUser.id),
+        username: currentUser.username,
+        avatar_url: currentUser.avatar_url,
+        is_banned: currentUser.is_banned,
+      });
+    }
+  } catch (error) {
+    chatUsers = [];
+    chatUsersLoadError = true;
+    logChat(`Не удалось загрузить список пользователей: ${error.message || error}`);
+  }
+  renderChatUsers();
+}
+
+function updateOnlineUsers() {
+  const presenceState = typingChannel?.presenceState?.() || {};
+  onlineUserIds = new Set(Object.entries(presenceState)
+    .filter(([, presences]) => Array.isArray(presences) && presences.length > 0)
+    .map(([userId]) => String(userId)));
+  renderChatUsers();
 }
 
 function observeMessageSize(message) {
@@ -345,7 +507,10 @@ async function enterChat() {
   messageList.hidden = false;
   historyPanel.classList.add("is-ready");
   byId("chat-user-tools").hidden = false;
-  messageInput.disabled = false;
+  byId("chat-users-panel").hidden = false;
+  byId("chat-users-toggle").hidden = !byId("chat-content-layout").classList.contains("is-compact");
+  messageInput.contentEditable = "true";
+  messageInput.setAttribute("aria-disabled", "false");
   byId("chat-send-button").disabled = false;
   byId("chat-attach-button").disabled = false;
   byId("chat-emoji-button").disabled = false;
@@ -353,7 +518,7 @@ async function enterChat() {
   byId("chat-user-avatar").src = currentUser.avatar_url || makeAvatarUrl(currentUser.username);
   updateMuteLabel();
   setConnectionStatus("Загрузка сообщений...");
-  await loadHistory();
+  await Promise.all([loadHistory(), loadChatUsers()]);
   scrollToLatest();
   connectRealtime();
   if (!messagePollTimer) {
@@ -533,7 +698,9 @@ function connectRealtime() {
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") logChat(`Ошибка Realtime-канала реакций: ${status}.`);
     });
 
-  typingChannel = client.channel("chat-room-1");
+  typingChannel = client.channel("chat-room-1", {
+    config: { presence: { key: String(currentUser.id) } },
+  });
   typingChannel
     .on("broadcast", { event: "typing" }, ({ payload }) => {
       const username = payload?.user;
@@ -547,9 +714,19 @@ function connectRealtime() {
         }
       }, 3100);
     })
+    .on("presence", { event: "sync" }, updateOnlineUsers)
     .subscribe((status) => {
-      if (status === "SUBSCRIBED") logChat("Realtime-канал индикатора набора подключен.");
-      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") logChat(`Ошибка Realtime-канала набора: ${status}.`);
+      if (status === "SUBSCRIBED") {
+        typingChannel.track({ user_id: String(currentUser.id), username: myNick })
+          .then(({ error }) => { if (error) logChat(`Не удалось объявить присутствие: ${error.message}`); });
+        updateOnlineUsers();
+        logChat("Realtime-канал индикатора набора и присутствия подключен.");
+      }
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        onlineUserIds.clear();
+        renderChatUsers();
+        logChat(`Ошибка Realtime-канала набора и присутствия: ${status}.`);
+      }
     });
 
   realtimeChannels = [messagesChannel, reactionsChannel, typingChannel];
@@ -648,8 +825,242 @@ function safeMediaUrl(value) {
   }
 }
 
+function createKolobokPicker(onSelect) {
+  const panel = document.createElement("div");
+  panel.className = "kolobok-picker-panel";
+
+  const controls = document.createElement("div");
+  controls.className = "kolobok-picker-controls";
+  const search = document.createElement("input");
+  search.type = "search";
+  search.className = "kolobok-picker-search";
+  search.placeholder = "Поиск смайлика...";
+  search.setAttribute("aria-label", "Поиск смайлика Колобка");
+  const category = document.createElement("select");
+  category.className = "kolobok-picker-category";
+  category.setAttribute("aria-label", "Категория смайликов Колобка");
+  const allCategories = document.createElement("option");
+  allCategories.value = "";
+  allCategories.textContent = "Все категории";
+  category.append(allCategories);
+  [...new Set(kolobokSmiles.map((smile) => smile.category))].forEach((categoryName) => {
+    const option = document.createElement("option");
+    option.value = categoryName;
+    option.textContent = kolobokCategoryLabels[categoryName] || categoryName;
+    category.append(option);
+  });
+  controls.append(search, category);
+
+  const grid = document.createElement("div");
+  grid.className = "kolobok-picker-grid";
+  const render = () => {
+    const query = search.value.trim().toLowerCase();
+    const selectedCategory = category.value;
+    const fragment = document.createDocumentFragment();
+    kolobokSmiles
+      .filter((smile) => (!selectedCategory || smile.category === selectedCategory)
+        && (!query || `${smile.name} ${kolobokCategoryLabels[smile.category] || smile.category}`.toLowerCase().includes(query)))
+      .forEach((smile) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "kolobok-picker-item";
+        button.title = `${kolobokCategoryLabels[smile.category] || smile.category}: ${smile.title}`;
+        button.setAttribute("aria-label", button.title);
+        const image = document.createElement("img");
+        image.src = smile.url;
+        image.alt = "";
+        image.loading = "lazy";
+        button.append(image);
+        button.addEventListener("click", () => onSelect(smile.token));
+        fragment.append(button);
+      });
+    grid.replaceChildren(fragment);
+    if (!grid.childElementCount) {
+      const empty = document.createElement("div");
+      empty.className = "kolobok-picker-empty";
+      empty.textContent = "Ничего не найдено.";
+      grid.append(empty);
+    }
+  };
+  search.addEventListener("input", render);
+  category.addEventListener("change", render);
+  render();
+
+  const attribution = document.createElement("div");
+  attribution.className = "kolobok-picker-attribution";
+  attribution.append(document.createTextNode("Copyright © Aiwan. Kolobok Smiles · "));
+  const link = document.createElement("a");
+  link.href = "https://www.kolobok.us/";
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.textContent = "kolobok.us";
+  attribution.append(link);
+  attribution.append(document.createTextNode(" · "));
+  const licenseLink = document.createElement("a");
+  licenseLink.href = kolobokLicenseUrl;
+  licenseLink.target = "_blank";
+  licenseLink.rel = "noreferrer";
+  licenseLink.textContent = "Лицензия";
+  attribution.append(licenseLink);
+  panel.append(controls, grid, attribution);
+  return panel;
+}
+
+function createCombinedEmojiPicker(emojiPicker, onKolobokSelect) {
+  const shell = document.createElement("div");
+  shell.className = "combined-emoji-picker";
+  const tabs = document.createElement("div");
+  tabs.className = "combined-emoji-picker-tabs";
+  tabs.setAttribute("role", "tablist");
+  const emojiTab = document.createElement("button");
+  emojiTab.type = "button";
+  emojiTab.className = "is-active";
+  emojiTab.setAttribute("role", "tab");
+  emojiTab.setAttribute("aria-selected", "true");
+  emojiTab.textContent = "Эмодзи";
+  const kolobokTab = document.createElement("button");
+  kolobokTab.type = "button";
+  kolobokTab.setAttribute("role", "tab");
+  kolobokTab.setAttribute("aria-selected", "false");
+  kolobokTab.textContent = "Колобки";
+
+  const emojiPanel = document.createElement("div");
+  emojiPanel.className = "combined-emoji-picker-content";
+  emojiPanel.setAttribute("role", "tabpanel");
+  emojiPanel.append(emojiPicker);
+  const kolobokPanel = createKolobokPicker(onKolobokSelect);
+  kolobokPanel.classList.add("combined-emoji-picker-content");
+  kolobokPanel.setAttribute("role", "tabpanel");
+  kolobokPanel.hidden = true;
+
+  const activate = (showKolobok) => {
+    emojiPanel.hidden = showKolobok;
+    kolobokPanel.hidden = !showKolobok;
+    emojiTab.classList.toggle("is-active", !showKolobok);
+    kolobokTab.classList.toggle("is-active", showKolobok);
+    emojiTab.setAttribute("aria-selected", String(!showKolobok));
+    kolobokTab.setAttribute("aria-selected", String(showKolobok));
+  };
+  emojiTab.addEventListener("click", () => activate(false));
+  kolobokTab.addEventListener("click", () => activate(true));
+  tabs.append(emojiTab, kolobokTab);
+  shell.append(tabs, emojiPanel, kolobokPanel);
+  return shell;
+}
+
+function serializeComposerNode(node) {
+  if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  if (node.tagName === "BR") return "\n";
+  if (node.tagName === "IMG") return node.dataset.kolobokToken || node.alt || "";
+
+  const contents = [...node.childNodes].map(serializeComposerNode).join("");
+  return ["DIV", "P"].includes(node.tagName) ? `${contents}\n` : contents;
+}
+
+function getComposerText() {
+  return [...messageInput.childNodes].map(serializeComposerNode).join("").replace(/\n$/, "");
+}
+
+function appendComposerText(fragment, text) {
+  const lines = text.split("\n");
+  lines.forEach((line, index) => {
+    if (line) fragment.append(document.createTextNode(line));
+    if (index < lines.length - 1) fragment.append(document.createElement("br"));
+  });
+}
+
+function setComposerText(text) {
+  const fragment = document.createDocumentFragment();
+  const pattern = /\[\[kolobok:[^\]]+\]\]/g;
+  let cursor = 0;
+  for (const match of text.matchAll(pattern)) {
+    if (match.index > cursor) appendComposerText(fragment, text.slice(cursor, match.index));
+    const smile = kolobokByToken.get(match[0]);
+    if (!smile) {
+      appendComposerText(fragment, match[0]);
+    } else {
+      const image = document.createElement("img");
+      image.className = "chat-kolobok-smile";
+      image.src = smile.url;
+      image.alt = match[0];
+      image.title = smile.title;
+      image.dataset.kolobokToken = match[0];
+      image.contentEditable = "false";
+      image.draggable = false;
+      fragment.append(image);
+    }
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < text.length) appendComposerText(fragment, text.slice(cursor));
+  messageInput.replaceChildren(fragment);
+  const range = document.createRange();
+  range.selectNodeContents(messageInput);
+  range.collapse(false);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  composerSavedRange = range.cloneRange();
+  resizeComposer();
+}
+
+function rememberComposerSelection() {
+  const selection = window.getSelection();
+  if (selection?.rangeCount && messageInput.contains(selection.anchorNode)) {
+    composerSavedRange = selection.getRangeAt(0).cloneRange();
+  }
+}
+
+function composerSelectionRange() {
+  const selection = window.getSelection();
+  if (selection?.rangeCount && messageInput.contains(selection.anchorNode)) {
+    return selection.getRangeAt(0);
+  }
+  if (composerSavedRange && messageInput.contains(composerSavedRange.startContainer)) {
+    return composerSavedRange.cloneRange();
+  }
+  const range = document.createRange();
+  range.selectNodeContents(messageInput);
+  range.collapse(false);
+  return range;
+}
+
+function insertComposerToken(token) {
+  const range = composerSelectionRange();
+  range.deleteContents();
+  const smile = kolobokByToken.get(token);
+  let insertedContent;
+  let lastInsertedNode;
+  if (smile) {
+    insertedContent = document.createElement("img");
+    insertedContent.className = "chat-kolobok-smile";
+    insertedContent.src = smile.url;
+    insertedContent.alt = token;
+    insertedContent.title = smile.title;
+    insertedContent.dataset.kolobokToken = token;
+    insertedContent.contentEditable = "false";
+    insertedContent.draggable = false;
+    lastInsertedNode = insertedContent;
+  } else {
+    insertedContent = document.createDocumentFragment();
+    appendComposerText(insertedContent, token);
+    lastInsertedNode = insertedContent.lastChild;
+  }
+  if (!lastInsertedNode) return;
+  range.insertNode(insertedContent);
+  range.setStartAfter(lastInsertedNode);
+  range.collapse(true);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  composerSavedRange = range.cloneRange();
+  messageInput.focus();
+  resizeComposer();
+  messageInput.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 function appendLinkedText(container, text) {
-  const pattern = /https?:\/\/[^\s]+/g;
+  const pattern = /\[\[kolobok:[^\]]+\]\]|https?:\/\/[^\s]+/g;
   let cursor = 0;
   let firstUrl = null;
   for (const match of text.matchAll(pattern)) {
@@ -658,6 +1069,23 @@ function appendLinkedText(container, text) {
     const trailing = rawUrl.match(/[),.!?;:]+$/)?.[0] || "";
     const url = rawUrl.slice(0, rawUrl.length - trailing.length);
     if (start > cursor) container.append(document.createTextNode(text.slice(cursor, start)));
+    const smile = kolobokByToken.get(url);
+    if (smile) {
+      const image = document.createElement("img");
+      image.className = "chat-kolobok-smile";
+      image.src = smile.url;
+      image.alt = smile.title;
+      image.title = smile.title;
+      image.loading = "lazy";
+      container.append(image);
+      cursor = start + rawUrl.length;
+      continue;
+    }
+    if (rawUrl.startsWith("[[kolobok:")) {
+      container.append(document.createTextNode(rawUrl));
+      cursor = start + rawUrl.length;
+      continue;
+    }
     try {
       const parsed = new URL(url);
       const link = document.createElement("a");
@@ -917,7 +1345,17 @@ function renderReactions(container, messageId, reactions) {
     button.title = users.map((item) => item.user_name).join(", ");
     const emojiLabel = document.createElement("span");
     emojiLabel.className = "chat-reaction-emoji";
-    emojiLabel.textContent = emoji;
+    const smile = kolobokByToken.get(emoji);
+    if (smile) {
+      const image = document.createElement("img");
+      image.className = "chat-kolobok-reaction";
+      image.src = smile.url;
+      image.alt = smile.title;
+      image.title = smile.title;
+      emojiLabel.append(image);
+    } else {
+      emojiLabel.textContent = emoji;
+    }
     const count = document.createElement("span");
     count.className = "chat-reaction-count";
     count.textContent = String(users.length);
@@ -1005,7 +1443,7 @@ async function showReactionPicker(event, messageId) {
   try {
     const { Picker, data } = await loadEmojiPicker();
     if (requestId !== reactionPickerRequestId || container.hidden) return;
-    container.replaceChildren(new Picker({
+    const emojiPicker = new Picker({
       data,
       theme: "dark",
       locale: "ru",
@@ -1014,6 +1452,10 @@ async function showReactionPicker(event, messageId) {
         closeReactionPicker();
         await toggleReaction(messageId, emoji.native);
       },
+    });
+    container.replaceChildren(createCombinedEmojiPicker(emojiPicker, async (token) => {
+      closeReactionPicker();
+      await toggleReaction(messageId, token);
     }));
   } catch {
     if (requestId === reactionPickerRequestId) {
@@ -1046,7 +1488,7 @@ function prepareEdit(messageId, text, media = []) {
   editingMedia = media.slice();
   byId("chat-reply-label").textContent = "Редактирование сообщения";
   byId("chat-reply-preview").hidden = false;
-  messageInput.value = text;
+  setComposerText(text);
   messageInput.focus();
 }
 
@@ -1126,7 +1568,7 @@ function confirmChatAction(message, { title = "Подтверждение", conf
 }
 
 async function sendMessage() {
-  const text = messageInput.value.trim();
+  const text = getComposerText().trim();
   if ((!text && selectedFiles.length === 0) || !currentUser) return;
 
   const isEditing = Boolean(editingId);
@@ -1165,7 +1607,7 @@ async function sendMessage() {
       if (error) throw error;
     }
 
-    messageInput.value = "";
+    setComposerText("");
     selectedFiles.splice(0);
     byId("chat-file-input").value = "";
     byId("chat-attachment-previews").replaceChildren();
@@ -1241,12 +1683,20 @@ function setupComposer() {
   resizeComposer();
   byId("chat-send-button").addEventListener("click", sendMessage);
   messageInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
       event.preventDefault();
       sendMessage();
     }
   });
+  messageInput.addEventListener("keyup", rememberComposerSelection);
+  messageInput.addEventListener("mouseup", rememberComposerSelection);
+  messageInput.addEventListener("paste", (event) => {
+    event.preventDefault();
+    const plainText = event.clipboardData?.getData("text/plain") || "";
+    if (plainText) insertComposerToken(plainText);
+  });
   messageInput.addEventListener("input", () => {
+    rememberComposerSelection();
     resizeComposer();
     if (!typingChannel || typingSendTimer) return;
     typingChannel.send({ type: "broadcast", event: "typing", payload: { user: myNick } });
@@ -1256,8 +1706,7 @@ function setupComposer() {
   byId("chat-file-input").addEventListener("change", handleFileSelection);
   byId("chat-cancel-reply").addEventListener("click", () => {
     clearComposeMode();
-    messageInput.value = "";
-    resizeComposer();
+    setComposerText("");
   });
   byId("chat-messages").addEventListener("scroll", () => {
     if (messageList.scrollHeight > messageList.clientHeight) {
@@ -1280,6 +1729,7 @@ function setupComposer() {
 
   const emojiMenu = byId("chat-emoji-menu");
   let composerPickerPromise = null;
+  byId("chat-emoji-button").addEventListener("pointerdown", rememberComposerSelection);
   byId("chat-emoji-button").addEventListener("click", async () => {
     if (!emojiMenu.hidden) {
       emojiMenu.hidden = true;
@@ -1293,20 +1743,20 @@ function setupComposer() {
       composerPickerPromise = (async () => {
         const { Picker, data } = await loadEmojiPicker();
         if (emojiMenu.hidden || emojiMenu.childElementCount) return;
-        emojiMenu.replaceChildren(new Picker({
+        const insertChatToken = (token) => {
+          insertComposerToken(token);
+          emojiMenu.hidden = true;
+        };
+        const emojiPicker = new Picker({
           data,
           theme: "dark",
           locale: "ru",
           set: "native",
           onEmojiSelect: (emoji) => {
-            const start = messageInput.selectionStart;
-            const end = messageInput.selectionEnd;
-            messageInput.setRangeText(emoji.native, start, end, "end");
-            messageInput.focus();
-            resizeComposer();
-            emojiMenu.hidden = true;
+            insertChatToken(emoji.native);
           },
-        }));
+        });
+        emojiMenu.replaceChildren(createCombinedEmojiPicker(emojiPicker, insertChatToken));
       })().catch(() => {
         if (!emojiMenu.hidden) emojiMenu.textContent = "Не удалось загрузить эмодзи.";
       }).finally(() => {
@@ -1325,7 +1775,7 @@ function setupComposer() {
 function resizeComposer() {
   messageInput.style.height = "34px";
   const measuredHeight = messageInput.scrollHeight + 2;
-  const nextHeight = Math.max(34, Math.min(measuredHeight, 120));
+  const nextHeight = Math.max(34, Math.min(measuredHeight, 160));
   messageInput.style.height = `${nextHeight}px`;
   messageInput.style.overflowY = measuredHeight > 120 ? "auto" : "hidden";
 }
@@ -1360,11 +1810,165 @@ function setMute(minutes) {
   document.querySelector(".chat-preferences").open = false;
 }
 
+function readSoundSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SOUND_SETTINGS_KEY) || "{}");
+    return {
+      preset: [...soundPresets, "Custom"].includes(saved.preset) ? saved.preset : "Default",
+      volume: Number.isFinite(Number(saved.volume)) ? Math.max(0, Math.min(100, Number(saved.volume))) : 70,
+    };
+  } catch {
+    return { preset: "Default", volume: 70 };
+  }
+}
+
+function saveSoundSettings(settings) {
+  localStorage.setItem(SOUND_SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function openSoundDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(SOUND_DB_NAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(SOUND_DB_STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function storeCustomSound(file) {
+  const database = await openSoundDatabase();
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(SOUND_DB_STORE, "readwrite");
+    transaction.objectStore(SOUND_DB_STORE).put({ blob: file, name: file.name }, "incoming_chat_message");
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+  database.close();
+}
+
+async function getCustomSound() {
+  const database = await openSoundDatabase();
+  const result = await new Promise((resolve, reject) => {
+    const request = database.transaction(SOUND_DB_STORE).objectStore(SOUND_DB_STORE)
+      .get("incoming_chat_message");
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+  database.close();
+  return result;
+}
+
+async function selectedSoundSource() {
+  const settings = readSoundSettings();
+  if (settings.preset === "Custom") {
+    const custom = await getCustomSound();
+    return custom ? { source: URL.createObjectURL(custom.blob), name: custom.name, temporary: true } : null;
+  }
+  const assetPath = `./assets/sounds/${settings.preset}/incoming_chat_message.mp3`;
+  const source = soundPresetAssets[assetPath];
+  // Keep the current built-in notification until the Default preset file is added.
+  if (!source && settings.preset === "Default") {
+    return { source: "https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3" };
+  }
+  return source ? { source } : null;
+}
+
+async function playSelectedSound() {
+  const selected = await selectedSoundSource();
+  if (!selected) return;
+  const settings = readSoundSettings();
+  const audio = new Audio(selected.source);
+  audio.volume = settings.volume / 100;
+  if (selected.temporary) audio.addEventListener("ended", () => URL.revokeObjectURL(selected.source), { once: true });
+  try {
+    await audio.play();
+  } catch {
+    if (selected.temporary) URL.revokeObjectURL(selected.source);
+  }
+}
+
 function playNotification() {
   const mutedUntil = Number(localStorage.getItem("chat_mute_until") || 0);
   if (Date.now() < mutedUntil) return;
-  const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3");
-  audio.play().catch(() => {});
+  playSelectedSound().catch((error) => console.warn("Не удалось загрузить звук уведомления:", error));
+}
+
+async function previewSelectedSound() {
+  try {
+    await playSelectedSound();
+  } catch (error) {
+    console.warn("Не удалось прослушать звук уведомления:", error);
+  }
+}
+
+async function setupSoundSettings() {
+  const presetControl = byId("chat-sound-preset");
+  const volumeControl = byId("chat-sound-volume");
+  const volumeValue = byId("chat-sound-volume-value");
+  const fileInput = byId("chat-sound-file");
+  const fileLabel = document.querySelector(".chat-sound-file-label");
+  const fileName = byId("chat-sound-file-name");
+  const settings = readSoundSettings();
+  presetControl.replaceChildren(...soundPresets.map((preset) => {
+    const option = document.createElement("option");
+    option.value = preset;
+    option.textContent = preset === "Default" ? "По умолчанию" : preset;
+    return option;
+  }));
+  const customOption = document.createElement("option");
+  customOption.value = "Custom";
+  customOption.textContent = "Свой звук";
+  presetControl.append(customOption);
+  presetControl.value = settings.preset;
+  volumeControl.value = String(settings.volume);
+  volumeValue.textContent = `${settings.volume}%`;
+  const updateCustomSoundControls = () => {
+    const customSelected = presetControl.value === "Custom";
+    fileLabel.hidden = !customSelected;
+    fileName.hidden = !customSelected;
+  };
+  updateCustomSoundControls();
+
+  try {
+    const custom = await getCustomSound();
+    if (custom) fileName.textContent = custom.name;
+  } catch (error) {
+    console.warn("Не удалось загрузить пользовательский звук:", error);
+  }
+
+  presetControl.addEventListener("change", () => {
+    const nextSettings = readSoundSettings();
+    nextSettings.preset = presetControl.value;
+    saveSoundSettings(nextSettings);
+    updateCustomSoundControls();
+  });
+  volumeControl.addEventListener("input", () => {
+    const nextSettings = readSoundSettings();
+    nextSettings.volume = Number(volumeControl.value);
+    volumeValue.textContent = `${nextSettings.volume}%`;
+    saveSoundSettings(nextSettings);
+  });
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".mp3")) {
+      showChatNotice("Выберите аудиофайл MP3.");
+      fileInput.value = "";
+      return;
+    }
+    try {
+      await storeCustomSound(file);
+      fileName.textContent = file.name;
+      presetControl.value = "Custom";
+      const nextSettings = readSoundSettings();
+      nextSettings.preset = "Custom";
+      saveSoundSettings(nextSettings);
+    } catch (error) {
+      console.warn("Не удалось сохранить пользовательский звук:", error);
+      showChatNotice("Не удалось сохранить выбранный звуковой файл.");
+    }
+  });
+  byId("chat-sound-preview").addEventListener("click", previewSelectedSound);
 }
 
 function openAvatarDialog() {
@@ -1430,6 +2034,11 @@ function showChatNotice(message) {
 }
 
 function setupPreferences() {
+  setupSoundSettings();
+  const preferences = document.querySelector(".chat-preferences");
+  document.addEventListener("click", (event) => {
+    if (!preferences.contains(event.target)) preferences.open = false;
+  });
   document.querySelectorAll("[data-mute]").forEach((button) => {
     button.addEventListener("click", () => setMute(Number(button.dataset.mute)));
   });
@@ -1448,6 +2057,71 @@ function setupPreferences() {
   byId("chat-avatar-cancel").addEventListener("click", () => { byId("chat-profile-modal").hidden = true; });
 }
 
+function setupChatUsers() {
+  const layout = byId("chat-content-layout");
+  const panel = byId("chat-users-panel");
+  const toggle = byId("chat-users-toggle");
+  const close = byId("chat-users-close");
+  const resizer = byId("chat-users-resizer");
+  const savedWidth = Number(localStorage.getItem("chat_users_panel_width")) || 240;
+  let panelWidth = savedWidth;
+  let dragState = null;
+
+  const clampWidth = (width) => Math.max(200, Math.min(420, layout.clientWidth - 408, width));
+  const setWidth = (width) => {
+    panelWidth = clampWidth(width);
+    layout.style.setProperty("--chat-users-width", `${panelWidth}px`);
+    resizer.setAttribute("aria-valuenow", String(Math.round(panelWidth)));
+  };
+  const closeDrawer = () => {
+    panel.classList.remove("is-open");
+    toggle.setAttribute("aria-expanded", "false");
+  };
+  const syncLayout = () => {
+    const compact = layout.clientWidth < 608;
+    const wasCompact = layout.classList.contains("is-compact");
+    layout.classList.toggle("is-compact", compact);
+    toggle.hidden = !compact || !currentUser;
+    if (!compact && wasCompact) closeDrawer();
+    if (!compact) setWidth(panelWidth);
+  };
+
+  setWidth(panelWidth);
+  syncLayout();
+  if (window.ResizeObserver) new ResizeObserver(syncLayout).observe(layout);
+  else window.addEventListener("resize", syncLayout);
+
+  toggle.addEventListener("click", () => {
+    const opened = panel.classList.toggle("is-open");
+    toggle.setAttribute("aria-expanded", String(opened));
+  });
+  close.addEventListener("click", closeDrawer);
+  byId("chat-users-search").addEventListener("input", renderChatUsers);
+  resizer.addEventListener("pointerdown", (event) => {
+    if (layout.classList.contains("is-compact")) return;
+    dragState = { x: event.clientX, width: panelWidth };
+    resizer.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  resizer.addEventListener("pointermove", (event) => {
+    if (dragState) setWidth(dragState.width + dragState.x - event.clientX);
+  });
+  const finishResize = () => {
+    if (!dragState) return;
+    dragState = null;
+    localStorage.setItem("chat_users_panel_width", String(panelWidth));
+  };
+  resizer.addEventListener("pointerup", finishResize);
+  resizer.addEventListener("pointercancel", finishResize);
+  resizer.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    setWidth(panelWidth + (event.key === "ArrowLeft" ? 20 : -20));
+    localStorage.setItem("chat_users_panel_width", String(panelWidth));
+  });
+}
+
 setupComposer();
 setupPreferences();
+setupChatUsers();
 restoreSession();
