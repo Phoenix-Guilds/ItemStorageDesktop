@@ -1,10 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod config;
+mod game;
 mod github;
 mod modes;
 mod scanner;
 mod sync;
+mod updates;
 
 use crate::config::{AppConfig, WindowGeometry};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -306,7 +308,8 @@ fn main() {
             get_app_version,
             log_chat_event,
             set_chat_unread,
-            reset_window_geometry
+            reset_window_geometry,
+            game::is_wow_running
         ])
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
@@ -461,6 +464,7 @@ fn main() {
             *state.icons.lock().unwrap() = Some((normal_icon, badged_icon));
 
             sync::start_sync_loop(handle.clone(), notifier);
+            updates::start_version_monitor(handle.clone());
 
             Ok(())
         })

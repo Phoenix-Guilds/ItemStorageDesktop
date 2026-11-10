@@ -344,8 +344,18 @@ pub async fn download_from_github(
 }
 
 pub async fn get_latest_release_version() -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+    get_latest_release("Phoenix-Guilds/ItemStorageDesktop").await
+}
+
+pub async fn get_latest_addon_release_version() -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+    get_latest_release("Phoenix-Guilds/ItemStorageBrowser").await
+}
+
+async fn get_latest_release(
+    repository: &str,
+) -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
     let client = github_client();
-    let url = "https://api.github.com/repos/Phoenix-Guilds/ItemStorageDesktop/releases/latest";
+    let url = format!("https://api.github.com/repos/{repository}/releases/latest");
 
     // Для публичных GET запросов к релизам токен обычно не обязателен,
     // но USER_AGENT должен быть.
@@ -355,11 +365,16 @@ pub async fn get_latest_release_version() -> Result<(String, String), Box<dyn st
         HeaderValue::from_static("ItemStorageBrowser-Manager"),
     );
 
-    let resp = client.get(url).headers(headers).send().await?;
-    let json: serde_json::Value = resp.json().await?;
+    let json = github_json_request(client.get(url).headers(headers)).await?;
 
-    let tag = json["tag_name"].as_str().unwrap_or("v0.0.0").to_string();
-    let url = json["html_url"].as_str().unwrap_or("").to_string();
+    let tag = json["tag_name"]
+        .as_str()
+        .ok_or("GitHub не вернул тег последнего релиза")?
+        .to_string();
+    let url = json["html_url"]
+        .as_str()
+        .ok_or("GitHub не вернул ссылку на последний релиз")?
+        .to_string();
 
     Ok((tag, url))
 }

@@ -5,7 +5,6 @@ use crate::modes::{admin, user}; // Импорт режимов
 use crate::scanner::CharacterExportData;
 use chrono::{Local, Utc};
 use regex::Regex;
-use semver::Version;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -402,49 +401,6 @@ fn build_record(update: &CharacterExportData) -> String {
     result.join("\n")
 }
 
-pub async fn check_for_updates<R: Runtime>(handle: tauri::AppHandle<R>) {
-    let current_v_str = env!("CARGO_PKG_VERSION");
-    log_to_window(
-        &handle,
-        format!(
-            "[INFO] Ваша версия: v{}. Проверка обновлений...",
-            current_v_str
-        ),
-    );
-
-    match github::get_latest_release_version().await {
-        Ok((latest_tag, release_url)) => {
-            let latest_v_clean = latest_tag.trim_start_matches('v');
-            if let (Ok(latest_v), Ok(current_v)) = (
-                Version::parse(latest_v_clean),
-                Version::parse(current_v_str),
-            ) {
-                if latest_v > current_v {
-                    log_to_window(
-                        &handle,
-                        "[UPDATE] ==========================================".to_string(),
-                    );
-                    log_to_window(
-                        &handle,
-                        format!("[UPDATE] ДОСТУПНА НОВАЯ ВЕРСИЯ: v{}", latest_v),
-                    );
-                    log_to_window(&handle, format!("[UPDATE] Ссылка: {}", release_url));
-                    log_to_window(
-                        &handle,
-                        "[UPDATE] ==========================================".to_string(),
-                    );
-                } else {
-                    log_to_window(
-                        &handle,
-                        "[INFO] У вас установлена актуальная версия.".to_string(),
-                    );
-                }
-            }
-        }
-        Err(e) => log_to_window(&handle, format!("[WARN] Ошибка проверки обновлений: {}", e)),
-    }
-}
-
 pub async fn perform_sync<R: Runtime>(
     handle: &tauri::AppHandle<R>,
     cfg: &mut AppConfig,
@@ -568,7 +524,6 @@ pub async fn perform_sync<R: Runtime>(
 pub fn start_sync_loop(handle: tauri::AppHandle, state_notifier: Arc<Notify>) {
     tauri::async_runtime::spawn(async move {
         sleep(Duration::from_secs(2)).await;
-        check_for_updates(handle.clone()).await;
 
         loop {
             let mut cfg: AppConfig = confy::load("item-storage-manager", None).unwrap_or_default();

@@ -1,6 +1,6 @@
 [package]
 name = "ItemStorageManager"
-version = "0.2.3"
+version = "0.2.4"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -34,5 +34,6 @@ tauri-plugin-autostart = "2.5.1"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.52", features = [
     "Win32_System_Console",
-    "Win32_Foundation"
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_ToolHelp"
 ] }

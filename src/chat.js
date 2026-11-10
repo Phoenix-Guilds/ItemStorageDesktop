@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import CryptoJS from "crypto-js";
 import imageCompression from "browser-image-compression";
 import kolobokLicenseUrl from "./assets/kolobok/Copyright_en.txt?url";
+import wowLogoUrl from "./assets/wow-logo.svg?url";
 import {
   CHAT_SESSION_EXPIRY_MS,
   CHAT_SESSION_KEY,
@@ -10,6 +11,7 @@ import {
 } from "./chat-config.js";
 
 const SOUND_SETTINGS_KEY = "chat_sound_settings";
+const WOW_STATUS_ENABLED_KEY = "chat_wow_status_enabled";
 const SOUND_DB_NAME = "item-storage-chat-sounds";
 const SOUND_DB_STORE = "sounds";
 const soundPresetAssets = import.meta.glob("./assets/sounds/*/incoming_chat_message.mp3", {
@@ -101,8 +103,14 @@ let messageSizeObserver = null;
 let chatScrollButtonVisible = false;
 let composerSavedRange = null;
 let chatUsers = [];
+let profileCharacterDraft = [];
 let onlineUserIds = new Set();
+let wowUserIds = new Set();
 let chatUsersLoadError = false;
+let wowGameRunning = false;
+let wowPresenceTracked = false;
+let wowGamePollTimer = null;
+let muteCountdownTimer = null;
 
 function logChat(message) {
   const invoke = window.__TAURI__?.core?.invoke;
@@ -228,14 +236,36 @@ function renderChatUsers() {
 
     const details = document.createElement("span");
     details.className = "chat-user-row-details";
+    const titleRow = document.createElement("span");
+    titleRow.className = "chat-user-row-title";
     const name = document.createElement("span");
     name.className = `chat-user-row-name ${isOnline ? "is-online" : "is-offline"}`;
     name.textContent = user.username;
+    const aboutTooltip = [];
+    const displayName = String(user.display_name || "").trim();
+    const guildCharacters = normalizeGuildCharacters(user.guild_characters);
+    if (displayName) aboutTooltip.push(`Имя: ${displayName}`);
+    if (guildCharacters.length) aboutTooltip.push(`Персонажи в гильдии: ${guildCharacters.join(", ")}`);
+    if (aboutTooltip.length) name.title = aboutTooltip.join("\n");
+    titleRow.append(name);
+    if (wowUserIds.has(String(user.id))) {
+      const gameBadge = document.createElement("img");
+      gameBadge.className = "chat-user-game-badge";
+      gameBadge.src = wowLogoUrl;
+      gameBadge.alt = "";
+      gameBadge.title = "Сейчас в игре: World of Warcraft";
+      gameBadge.setAttribute("aria-label", "Играет в World of Warcraft Retail");
+      titleRow.append(gameBadge);
+    }
     const status = document.createElement("span");
     status.className = "chat-user-row-status";
     status.classList.toggle("is-online", isOnline);
-    status.textContent = user.is_banned ? "Заблокирован" : isOnline ? "Онлайн" : "Не в сети";
-    details.append(name, status);
+    status.textContent = user.is_banned
+      ? "Заблокирован"
+      : wowUserIds.has(String(user.id))
+        ? "Сейчас в игре"
+        : isOnline ? "Онлайн" : "Не в сети";
+    details.append(titleRow, status);
     row.append(avatar, details);
     fragment.append(row);
   });
@@ -248,7 +278,7 @@ async function loadChatUsers() {
   try {
     const { data, error } = await client
       .from("profiles")
-      .select("id, username, avatar_url, is_banned")
+      .select("id, username, avatar_url, is_banned, display_name, guild_characters")
       .order("username", { ascending: true });
     if (error) throw error;
     chatUsers = (data || []).map((user) => ({
@@ -262,6 +292,8 @@ async function loadChatUsers() {
         username: currentUser.username,
         avatar_url: currentUser.avatar_url,
         is_banned: currentUser.is_banned,
+        display_name: currentUser.display_name,
+        guild_characters: currentUser.guild_characters,
       });
     }
   } catch (error) {
@@ -274,10 +306,63 @@ async function loadChatUsers() {
 
 function updateOnlineUsers() {
   const presenceState = typingChannel?.presenceState?.() || {};
-  onlineUserIds = new Set(Object.entries(presenceState)
-    .filter(([, presences]) => Array.isArray(presences) && presences.length > 0)
+  const presenceEntries = Object.entries(presenceState)
+    .filter(([, presences]) => Array.isArray(presences) && presences.length > 0);
+  onlineUserIds = new Set(presenceEntries.map(([userId]) => String(userId)));
+  wowUserIds = new Set(presenceEntries
+    .filter(([, presences]) => presences.some((presence) => presence?.playing_wow === true))
     .map(([userId]) => String(userId)));
+  if (currentUser && wowPresenceTracked) {
+    const currentUserId = String(currentUser.id);
+    onlineUserIds.add(currentUserId);
+  }
+  if (currentUser && wowGameRunning) wowUserIds.add(String(currentUser.id));
   renderChatUsers();
+}
+
+function isWowStatusEnabled() {
+  return localStorage.getItem(WOW_STATUS_ENABLED_KEY) !== "false";
+}
+
+async function refreshWowGamePresence(force = false) {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!currentUser || !typingChannel) return;
+
+  const statusEnabled = isWowStatusEnabled();
+  let detectedRunning = false;
+  if (statusEnabled && invoke) {
+    try {
+      detectedRunning = Boolean(await invoke("is_wow_running"));
+    } catch (error) {
+      logChat(`Не удалось проверить процесс World of Warcraft: ${error.message || error}`);
+    }
+  }
+  if (statusEnabled !== isWowStatusEnabled()) {
+    void refreshWowGamePresence(true);
+    return;
+  }
+  const isRunning = detectedRunning;
+  try {
+    if (!force && isRunning === wowGameRunning && wowPresenceTracked) return;
+    wowGameRunning = isRunning;
+    updateOnlineUsers();
+    const presence = {
+      user_id: String(currentUser.id),
+      username: myNick,
+    };
+    if (statusEnabled) presence.playing_wow = isRunning;
+    const trackStatus = await typingChannel.track(presence);
+    if (trackStatus !== "ok") {
+      wowPresenceTracked = false;
+      logChat(`Не удалось обновить статус World of Warcraft: ${trackStatus}.`);
+      return;
+    }
+    wowPresenceTracked = true;
+    updateOnlineUsers();
+  } catch (error) {
+    wowPresenceTracked = false;
+    logChat(`Не удалось проверить статус World of Warcraft: ${error.message || error}`);
+  }
 }
 
 function observeMessageSize(message) {
@@ -336,6 +421,8 @@ function saveSession() {
       username: currentUser.username,
       avatar_url: currentUser.avatar_url,
       role: currentUser.role,
+      display_name: currentUser.display_name || "",
+      guild_characters: normalizeGuildCharacters(currentUser.guild_characters),
     },
     timestamp: Date.now(),
   }));
@@ -477,7 +564,7 @@ async function restoreSession() {
 
     const { data: profile, error } = await client
       .from("profiles")
-      .select("id, username, avatar_url, role, is_banned")
+      .select("id, username, avatar_url, role, is_banned, display_name, guild_characters")
       .eq("id", currentUser.id)
       .maybeSingle();
     if (error) throw error;
@@ -698,6 +785,32 @@ function connectRealtime() {
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") logChat(`Ошибка Realtime-канала реакций: ${status}.`);
     });
 
+  const profilesChannel = client
+    .channel("profiles_changes")
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, (change) => {
+      const updatedProfile = change.new;
+      if (!updatedProfile?.id) return;
+      const listedProfile = chatUsers.find((user) => String(user.id) === String(updatedProfile.id));
+      if (listedProfile) {
+        Object.assign(listedProfile, {
+          avatar_url: updatedProfile.avatar_url,
+          display_name: updatedProfile.display_name,
+          guild_characters: updatedProfile.guild_characters,
+        });
+      }
+      if (currentUser && String(currentUser.id) === String(updatedProfile.id)) {
+        currentUser = { ...currentUser, ...updatedProfile };
+        saveSession();
+      }
+      renderChatUsers();
+    })
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") logChat("Realtime-подписка на изменения профилей установлена.");
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        logChat(`Ошибка Realtime-канала профилей: ${status}.`);
+      }
+    });
+
   typingChannel = client.channel("chat-room-1", {
     config: { presence: { key: String(currentUser.id) } },
   });
@@ -717,19 +830,30 @@ function connectRealtime() {
     .on("presence", { event: "sync" }, updateOnlineUsers)
     .subscribe((status) => {
       if (status === "SUBSCRIBED") {
-        typingChannel.track({ user_id: String(currentUser.id), username: myNick })
-          .then(({ error }) => { if (error) logChat(`Не удалось объявить присутствие: ${error.message}`); });
+        wowPresenceTracked = false;
+        void refreshWowGamePresence(true);
+        if (!wowGamePollTimer) {
+          let previousPollAt = Date.now();
+          wowGamePollTimer = window.setInterval(() => {
+            const now = Date.now();
+            const resumedAfterPause = now - previousPollAt > 20000;
+            previousPollAt = now;
+            void refreshWowGamePresence(resumedAfterPause);
+          }, 10000);
+        }
         updateOnlineUsers();
         logChat("Realtime-канал индикатора набора и присутствия подключен.");
       }
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        wowPresenceTracked = false;
         onlineUserIds.clear();
+        wowUserIds.clear();
         renderChatUsers();
         logChat(`Ошибка Realtime-канала набора и присутствия: ${status}.`);
       }
     });
 
-  realtimeChannels = [messagesChannel, reactionsChannel, typingChannel];
+  realtimeChannels = [messagesChannel, reactionsChannel, profilesChannel, typingChannel];
 }
 
 async function pollLatestMessages() {
@@ -1798,9 +1922,33 @@ function updateTypingIndicator() {
 
 function updateMuteLabel() {
   const until = Number(localStorage.getItem("chat_mute_until") || 0);
-  const summary = document.querySelector(".chat-preferences summary");
-  summary.title = until > Date.now() ? "Звук отключен" : "Настройки чата";
-  summary.innerHTML = `<i class="fa-solid ${until > Date.now() ? "fa-volume-xmark" : "fa-ellipsis"}" aria-hidden="true"></i>`;
+  const summary = byId("chat-sound-settings-toggle");
+  const icon = summary.querySelector("i");
+  const permanentlyMuted = until >= 9999999999999;
+  const muted = permanentlyMuted || until > Date.now();
+  let tooltip = "Настройки звука · звук включен";
+
+  if (permanentlyMuted) {
+    tooltip = "Звук отключен навсегда";
+  } else if (muted) {
+    const remainingSeconds = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    const hours = Math.floor(remainingSeconds / 3600);
+    const minutes = Math.floor((remainingSeconds % 3600) / 60);
+    const seconds = remainingSeconds % 60;
+    const remaining = hours
+      ? `${hours} ч ${minutes} мин ${seconds} сек`
+      : minutes
+        ? `${minutes} мин ${seconds} сек`
+        : `${seconds} сек`;
+    tooltip = `Звук отключен еще ${remaining}`;
+  }
+
+  summary.classList.toggle("is-muted", muted && !permanentlyMuted);
+  summary.classList.toggle("is-permanently-muted", permanentlyMuted);
+  summary.dataset.tooltip = tooltip;
+  summary.title = tooltip;
+  summary.setAttribute("aria-label", tooltip);
+  icon.className = `fa-solid ${muted ? "fa-volume-xmark" : "fa-volume-high"}`;
 }
 
 function setMute(minutes) {
@@ -1978,6 +2126,121 @@ function openAvatarDialog() {
   byId("chat-profile-modal").hidden = false;
 }
 
+function openUserProfileDialog() {
+  if (!currentUser) return;
+  byId("chat-profile-user-name").textContent = currentUser.username;
+  byId("chat-profile-user-avatar").src = currentUser.avatar_url || makeAvatarUrl(currentUser.username);
+  byId("chat-game-status-enabled").checked = isWowStatusEnabled();
+  byId("chat-profile-pages").classList.remove("is-about");
+  byId("chat-user-profile-modal").hidden = false;
+}
+
+function closeUserProfileDialog() {
+  byId("chat-user-profile-modal").hidden = true;
+}
+
+function normalizeGuildCharacters(value) {
+  const characters = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[\s,]+/)
+      : [];
+  const unique = new Map();
+  characters.forEach((character) => {
+    const trimmed = String(character || "").trim();
+    if (trimmed && !unique.has(trimmed.toLocaleLowerCase("ru-RU"))) {
+      unique.set(trimmed.toLocaleLowerCase("ru-RU"), trimmed);
+    }
+  });
+  return [...unique.values()];
+}
+
+function openAboutPage() {
+  byId("chat-about-error").textContent = "";
+  byId("chat-about-name").value = currentUser.display_name || "";
+  profileCharacterDraft = normalizeGuildCharacters(currentUser.guild_characters);
+  renderCharacterTags();
+  byId("chat-profile-pages").classList.add("is-about");
+  window.setTimeout(() => byId("chat-about-name").focus(), 220);
+}
+
+function returnToProfileMenu() {
+  byId("chat-about-error").textContent = "";
+  byId("chat-profile-pages").classList.remove("is-about");
+}
+
+function renderCharacterTags() {
+  const tags = byId("chat-character-tags");
+  tags.replaceChildren();
+  profileCharacterDraft.forEach((character, index) => {
+    const tag = document.createElement("span");
+    tag.className = "chat-character-tag";
+    const label = document.createElement("span");
+    label.textContent = character;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Удалить персонажа ${character}`);
+    remove.title = `Удалить ${character}`;
+    remove.textContent = "×";
+    remove.addEventListener("click", () => {
+      profileCharacterDraft.splice(index, 1);
+      renderCharacterTags();
+      byId("chat-about-character-input").focus();
+    });
+    tag.append(label, remove);
+    tags.append(tag);
+  });
+}
+
+function addCharacterTags(value) {
+  const additions = normalizeGuildCharacters(value.split(/[\s,]+/));
+  const existing = new Set(profileCharacterDraft.map((character) => character.toLocaleLowerCase("ru-RU")));
+  additions.forEach((character) => {
+    const key = character.toLocaleLowerCase("ru-RU");
+    if (!existing.has(key)) {
+      existing.add(key);
+      profileCharacterDraft.push(character);
+    }
+  });
+  renderCharacterTags();
+}
+
+async function saveAboutProfile(event) {
+  event.preventDefault();
+  if (!currentUser) return;
+
+  const saveButton = byId("chat-about-save");
+  const errorMessage = byId("chat-about-error");
+  const displayName = byId("chat-about-name").value.trim();
+  addCharacterTags(byId("chat-about-character-input").value);
+  byId("chat-about-character-input").value = "";
+  const guildCharacters = normalizeGuildCharacters(profileCharacterDraft);
+  saveButton.disabled = true;
+  errorMessage.textContent = "";
+
+  try {
+    const { data, error } = await client
+      .from("profiles")
+      .update({ display_name: displayName, guild_characters: guildCharacters })
+      .eq("id", currentUser.id)
+      .select("id, display_name, guild_characters")
+      .single();
+    if (error) throw error;
+
+    currentUser = { ...currentUser, ...data };
+    const ownProfile = chatUsers.find((user) => String(user.id) === String(currentUser.id));
+    if (ownProfile) Object.assign(ownProfile, data);
+    saveSession();
+    renderChatUsers();
+    returnToProfileMenu();
+    showChatNotice("Информация в профиле сохранена.");
+  } catch (error) {
+    errorMessage.textContent = error.message || "Не удалось сохранить профиль.";
+  } finally {
+    saveButton.disabled = false;
+  }
+}
+
 function makeAvatarUrl(username, randomize = false) {
   const style = byId("chat-avatar-style")?.value || "identicon";
   const seed = randomize ? crypto.randomUUID() : username;
@@ -1995,6 +2258,7 @@ async function saveAvatar() {
     currentUser = data;
     saveSession();
     byId("chat-user-avatar").src = currentUser.avatar_url;
+    byId("chat-profile-user-avatar").src = currentUser.avatar_url;
     byId("chat-profile-modal").hidden = true;
     showChatNotice("Аватар обновлен.");
   } catch (error) {
@@ -2014,6 +2278,8 @@ async function deleteAccount() {
 }
 
 function logout() {
+  if (wowGamePollTimer) window.clearInterval(wowGamePollTimer);
+  wowGamePollTimer = null;
   realtimeChannels.forEach((channel) => client.removeChannel(channel));
   realtimeChannels = [];
   typingChannel = null;
@@ -2042,9 +2308,53 @@ function setupPreferences() {
   document.querySelectorAll("[data-mute]").forEach((button) => {
     button.addEventListener("click", () => setMute(Number(button.dataset.mute)));
   });
+  if (!muteCountdownTimer) muteCountdownTimer = window.setInterval(updateMuteLabel, 1000);
+  byId("chat-user-name").addEventListener("click", openUserProfileDialog);
+  byId("chat-user-profile-close").addEventListener("click", closeUserProfileDialog);
+  byId("chat-about-open").addEventListener("click", openAboutPage);
+  byId("chat-game-status-enabled").addEventListener("change", (event) => {
+    localStorage.setItem(WOW_STATUS_ENABLED_KEY, String(event.currentTarget.checked));
+    void refreshWowGamePresence(true);
+  });
+  byId("chat-about-back").addEventListener("click", returnToProfileMenu);
+  byId("chat-about-cancel").addEventListener("click", returnToProfileMenu);
+  byId("chat-about-form").addEventListener("submit", saveAboutProfile);
+  const characterInput = byId("chat-about-character-input");
+  characterInput.addEventListener("input", () => {
+    const value = characterInput.value;
+    if (!/[\s,]/.test(value)) return;
+    const parts = value.split(/[\s,]+/);
+    const endedWithSeparator = /[\s,]+$/.test(value);
+    const completed = endedWithSeparator ? parts : parts.slice(0, -1);
+    addCharacterTags(completed.join(" "));
+    characterInput.value = endedWithSeparator ? "" : parts[parts.length - 1];
+  });
+  characterInput.addEventListener("keydown", (event) => {
+    if (["Enter", ",", " "].includes(event.key)) {
+      event.preventDefault();
+      addCharacterTags(characterInput.value);
+      characterInput.value = "";
+    } else if (event.key === "Backspace" && !characterInput.value && profileCharacterDraft.length) {
+      profileCharacterDraft.pop();
+      renderCharacterTags();
+    }
+  });
+  byId("chat-character-tags-input").addEventListener("click", (event) => {
+    if (!event.target.closest("button")) characterInput.focus();
+  });
+  byId("chat-user-profile-modal").addEventListener("click", (event) => {
+    if (event.target === byId("chat-user-profile-modal")) closeUserProfileDialog();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !byId("chat-user-profile-modal").hidden) {
+      closeUserProfileDialog();
+    }
+  });
   byId("chat-logout").addEventListener("click", logout);
-  byId("chat-delete-account").addEventListener("click", deleteAccount);
-  byId("chat-change-avatar").addEventListener("click", openAvatarDialog);
+  byId("chat-change-avatar").addEventListener("click", () => {
+    closeUserProfileDialog();
+    openAvatarDialog();
+  });
   byId("chat-avatar-style").addEventListener("change", () => {
     avatarDraft = makeAvatarUrl(currentUser.username);
     byId("chat-profile-preview").src = avatarDraft;
@@ -2097,6 +2407,13 @@ function setupChatUsers() {
   });
   close.addEventListener("click", closeDrawer);
   byId("chat-users-search").addEventListener("input", renderChatUsers);
+  const refreshPresenceAfterResume = () => {
+    if (!currentUser || document.hidden) return;
+    void refreshWowGamePresence(true);
+  };
+  window.addEventListener("focus", refreshPresenceAfterResume);
+  window.addEventListener("pageshow", refreshPresenceAfterResume);
+  document.addEventListener("visibilitychange", refreshPresenceAfterResume);
   resizer.addEventListener("pointerdown", (event) => {
     if (layout.classList.contains("is-compact")) return;
     dragState = { x: event.clientX, width: panelWidth };

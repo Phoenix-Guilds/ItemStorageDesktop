@@ -139,7 +139,7 @@
         align-items: center;
         justify-content: center;
         min-height: 0;
-        margin: 2px 0;
+        margin: 0;
         overflow: auto;
         border: 1px solid #333;
         border-radius: 8px;
@@ -394,6 +394,11 @@
         margin: 5px 0;
       }
 
+      .log-update a {
+        color: #ffd184;
+        text-decoration: underline;
+      }
+
       .setup-panel {
         background: rgba(37, 37, 38, 0.98);
         padding: 15px;
@@ -592,17 +597,17 @@
             <h1 id="chat-heading">Чат</h1>
             <div class="chat-user-tools" id="chat-user-tools" hidden>
               <img id="chat-user-avatar" class="chat-user-avatar" alt="" />
-              <span id="chat-user-name"></span>
+              <button id="chat-user-name" class="chat-user-name-button" type="button" aria-haspopup="dialog" aria-controls="chat-user-profile-modal"></button>
               <button id="chat-users-toggle" class="chat-users-toggle" type="button" aria-controls="chat-users-panel" aria-expanded="false" hidden>
                 <i class="fa-solid fa-users" aria-hidden="true"></i>
                 <span>Пользователи</span>
                 <span id="chat-users-toggle-count" class="chat-users-toggle-count">0 · 0</span>
               </button>
               <details class="chat-preferences">
-                <summary aria-label="Настройки чата" title="Настройки чата"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></summary>
+                <summary id="chat-sound-settings-toggle" aria-label="Настройки звуковых уведомлений" data-tooltip="Звук включен" title="Звук включен"><i class="fa-solid fa-volume-high" aria-hidden="true"></i></summary>
                 <div class="chat-preferences-menu">
                   <fieldset class="chat-sound-settings">
-                    <legend>Звук нового сообщения</legend>
+                    <legend>Звуковые уведомления</legend>
                     <label for="chat-sound-preset">Звуковой пресет</label>
                     <select id="chat-sound-preset">
                       <option value="Default">По умолчанию</option>
@@ -624,9 +629,6 @@
                   <button type="button" data-mute="60">Без звука на 1 час</button>
                   <button type="button" data-mute="180">Без звука на 3 часа</button>
                   <button type="button" data-mute="-1">Отключить звук навсегда</button>
-                  <button type="button" id="chat-change-avatar">Изменить аватар</button>
-                  <button type="button" id="chat-delete-account">Удалить аккаунт</button>
-                  <button type="button" id="chat-logout">Выйти</button>
                 </div>
               </details>
               <span class="chat-connection-status" id="chat-connection-status">Подключение...</span>
@@ -715,6 +717,57 @@
         <div class="chat-confirm-actions">
           <button type="button" class="chat-secondary-button" id="chat-confirm-cancel">Отмена</button>
           <button type="button" class="chat-danger-button" id="chat-confirm-accept">Удалить</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="chat-profile-modal" id="chat-user-profile-modal" hidden>
+      <section class="chat-profile-dialog chat-user-profile-dialog" role="dialog" aria-modal="true" aria-labelledby="chat-user-profile-title">
+        <div class="chat-profile-pages" id="chat-profile-pages">
+          <section class="chat-profile-page" aria-labelledby="chat-user-profile-title">
+            <div class="chat-user-profile-heading">
+              <h2 id="chat-user-profile-title">Профиль пользователя</h2>
+              <button type="button" class="chat-users-close" id="chat-user-profile-close" aria-label="Закрыть профиль"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+            </div>
+            <div class="chat-user-profile-summary">
+              <img id="chat-profile-user-avatar" class="chat-user-avatar" alt="" />
+              <span id="chat-profile-user-name"></span>
+            </div>
+            <label class="chat-game-status-setting" for="chat-game-status-enabled">
+              <input id="chat-game-status-enabled" type="checkbox" />
+              <span>Включить статус «В игре»</span>
+            </label>
+            <button type="button" class="chat-secondary-button" id="chat-about-open"><i class="fa-regular fa-user" aria-hidden="true"></i> Обо мне</button>
+            <button type="button" class="chat-secondary-button" id="chat-change-avatar">Изменить аватар</button>
+            <button type="button" class="chat-secondary-button" id="chat-delete-account" disabled title="Временно отключено">Удалить аккаунт</button>
+            <button type="button" class="chat-secondary-button" id="chat-logout">Выйти</button>
+          </section>
+          <section class="chat-profile-page chat-about-page" aria-labelledby="chat-about-title">
+            <div class="chat-user-profile-heading chat-about-heading">
+              <button type="button" class="chat-about-back" id="chat-about-back" aria-label="Назад в профиль"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>
+              <h2 id="chat-about-title">Обо мне</h2>
+              <span aria-hidden="true"></span>
+            </div>
+            <form id="chat-about-form" autocomplete="off">
+              <div class="chat-about-field">
+                <label for="chat-about-name">Имя <span>(необязательно)</span></label>
+                <input id="chat-about-name" type="text" maxlength="80" placeholder="Как к вам обращаться" />
+              </div>
+              <div class="chat-about-field">
+                <label for="chat-about-character-input">Персонажи в гильдии <span>(необязательно)</span></label>
+                <div class="chat-character-tags-input" id="chat-character-tags-input">
+                  <div class="chat-character-tags" id="chat-character-tags"></div>
+                  <input id="chat-about-character-input" type="text" aria-label="Добавить персонажа" placeholder="Введите имя персонажа" />
+                </div>
+              </div>
+              <p class="chat-about-hint">Разделяйте имена пробелом или запятой. Нажмите × на теге, чтобы удалить персонажа.</p>
+              <p class="chat-about-error" id="chat-about-error" role="alert" aria-live="polite"></p>
+              <div class="chat-about-actions">
+                <button type="button" class="chat-secondary-button" id="chat-about-cancel">Отмена</button>
+                <button type="submit" class="chat-primary-button" id="chat-about-save">Сохранить</button>
+              </div>
+            </form>
+          </section>
         </div>
       </section>
     </div>
@@ -818,6 +871,15 @@
         }
       }
 
+      function activateView(targetId) {
+        viewPanels.forEach((panel) => {
+          panel.classList.toggle("is-active", panel.id === targetId);
+        });
+        navButtons.forEach((item) => item.removeAttribute("aria-current"));
+        document.querySelector(`.nav-link[data-view="${targetId}"]`)?.setAttribute("aria-current", "page");
+        window.requestAnimationFrame(updateLogsScrollButton);
+      }
+
       logsDiv.addEventListener("scroll", updateLogsScrollButton, { passive: true });
       logsScrollButton.addEventListener("click", () => {
         logsDiv.scrollTo({ top: logsDiv.scrollHeight, behavior: "smooth" });
@@ -825,13 +887,7 @@
 
       navButtons.forEach((button) => {
         button.addEventListener("click", () => {
-          const targetId = button.dataset.view;
-          viewPanels.forEach((panel) => {
-            panel.classList.toggle("is-active", panel.id === targetId);
-          });
-          navButtons.forEach((item) => item.removeAttribute("aria-current"));
-          button.setAttribute("aria-current", "page");
-          updateLogsScrollButton();
+          activateView(button.dataset.view);
         });
       });
 
@@ -900,22 +956,53 @@
         const msg = event.payload;
         if (!msg) return;
 
+        const updateMarker = "[UPDATE_LINK] ";
+        const updateMarkerIndex = msg.indexOf(updateMarker);
+        const isUpdateNotification = updateMarkerIndex >= 0;
         const line = document.createElement("div");
-        line.textContent = msg;
+        if (isUpdateNotification) {
+          const updatePayload = msg.slice(updateMarkerIndex + updateMarker.length);
+          const separatorIndex = updatePayload.lastIndexOf("|");
+          const messageText = updatePayload.slice(0, separatorIndex);
+          const releaseUrl = updatePayload.slice(separatorIndex + 1).trim();
+          const timestamp = msg.slice(0, updateMarkerIndex).trim();
+          try {
+            const parsedUrl = new URL(releaseUrl);
+            if (separatorIndex > 0
+              && parsedUrl.protocol === "https:"
+              && parsedUrl.hostname === "github.com"
+              && parsedUrl.pathname.startsWith("/Phoenix-Guilds/")) {
+              const link = document.createElement("a");
+              link.href = parsedUrl.href;
+              link.target = "_blank";
+              link.rel = "noreferrer";
+              link.textContent = "Открыть последний релиз";
+              line.append(document.createTextNode(`${timestamp} ${messageText} `), link);
+            } else {
+              line.textContent = `${timestamp} ${updatePayload}`;
+            }
+          } catch {
+            line.textContent = `${timestamp} ${updatePayload}`;
+          }
+          line.className = "log-update";
+        } else {
+          line.textContent = msg;
+        }
         const wasNearBottom = logsDiv.scrollHeight - logsDiv.scrollTop - logsDiv.clientHeight < 40;
 
-        if (msg.includes("[SUCCESS]") || msg.includes("[OK]")) {
+        if (!isUpdateNotification && (msg.includes("[SUCCESS]") || msg.includes("[OK]"))) {
           line.className = "log-success";
-        } else if (msg.includes("[ERROR]") || msg.includes("[WARN]") || msg.includes("[!]")) {
+        } else if (!isUpdateNotification && (msg.includes("[ERROR]") || msg.includes("[WARN]") || msg.includes("[!]"))) {
           line.className = "log-error";
-        } else if (msg.includes("[INFO]") || msg.includes("[SYNC]")) {
+        } else if (!isUpdateNotification && (msg.includes("[INFO]") || msg.includes("[SYNC]"))) {
           line.className = "log-info";
-        } else if (msg.includes("[UPDATE]")) {
+        } else if (!isUpdateNotification && msg.includes("[UPDATE]")) {
           line.className = "log-update";
         }
 
         logsDiv.appendChild(line);
-        if (wasNearBottom) logsDiv.scrollTop = logsDiv.scrollHeight;
+        if (wasNearBottom || isUpdateNotification) logsDiv.scrollTop = logsDiv.scrollHeight;
+        if (isUpdateNotification) activateView("logs-view");
         updateLogsScrollButton();
 
         if (msg.includes("[NEED_SETUP]")) {
